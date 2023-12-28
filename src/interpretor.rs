@@ -1,12 +1,73 @@
-use crate::types::{Expr, Token, Value};
+use std::{any::Any, collections::HashMap};
+
+use crate::types::{Expr, Stmt, Token, Value};
 
 type EvalResult = Result<Value, &'static str>;
 
-pub fn eval(expr: &Box<Expr>) -> EvalResult {
-    match expr.as_ref() {
+pub struct Context<'a> {
+    pub enclosing: Option<&'a Context<'a>>,
+    pub state: HashMap<String, Value>,
+}
+impl Context<'_> {
+    fn derive(&self) -> Context {
+        Context {
+            enclosing: Some(self),
+            state: HashMap::new(),
+        }
+    }
+    fn get(&self, key: &str) -> Value {
+        if self.state.contains_key(key) {
+            return self.state.get(key).unwrap().clone();
+        }
+        if self.enclosing.is_some() {
+            return self.enclosing.unwrap().get(key);
+        }
+        return Value::Void;
+    }
+    fn set(&mut self, key: &str, val: Value) {
+        let _ = self.state.insert(key.to_string(), val);
+    }
+}
+
+pub fn eval(ctx: &mut Context, input: &Box<dyn Any>) -> EvalResult {
+    // statement
+    let stmt = input.downcast_ref::<Stmt>();
+    if stmt.is_some() {
+        eval_stmt(ctx, stmt.unwrap())
+    } else {
+        // expression
+        let expr = input.downcast_ref::<Expr>();
+        if expr.is_some() {
+            eval_expr(ctx, expr.unwrap())
+        } else {
+            Ok(Value::Void)
+        }
+    }
+}
+
+// statements
+fn eval_stmt(ctx: &mut Context, stmt: &Stmt) -> EvalResult {
+    match stmt {
+        Stmt::Let {
+            identifier,
+            initializer,
+        } => visit_let(ctx, identifier, initializer),
+    }
+}
+
+fn visit_let(ctx: &mut Context, name: &str, expr: &Box<Expr>) -> EvalResult {
+    let value = eval_expr(ctx, expr.as_ref())?;
+    ctx.set(name, value);
+    Ok(Value::Void)
+}
+
+// expressions
+fn eval_expr(ctx: &Context, expr: &Expr) -> EvalResult {
+    match expr {
+        Expr::Var(name) => Ok(ctx.get(name)),
         Expr::Literal(value) => Ok(value.clone()),
-        Expr::Unary { op, expr } => visit_unary(op, expr),
-        Expr::Binary { op, left, right } => visit_binary(op, left, right),
+        Expr::Unary { op, expr } => visit_unary(ctx, op, expr),
+        Expr::Binary { op, left, right } => visit_binary(ctx, op, left, right),
     }
 }
 
@@ -19,8 +80,8 @@ fn is_truthy(val: Value) -> bool {
     }
 }
 
-fn visit_unary(op: &Token, expr: &Box<Expr>) -> EvalResult {
-    let value = eval(expr)?;
+fn visit_unary(ctx: &Context, op: &Token, expr: &Box<Expr>) -> EvalResult {
+    let value = eval_expr(ctx, expr.as_ref())?;
 
     if *op == Token::Bang {
         Ok(Value::Bool(!is_truthy(value)))
@@ -59,9 +120,9 @@ fn concat(left: &String, right: &Value) -> EvalResult {
     Ok(Value::String(result))
 }
 
-fn visit_binary(op: &Token, left: &Box<Expr>, right: &Box<Expr>) -> EvalResult {
-    let left_value = eval(left)?;
-    let right_value = eval(right)?;
+fn visit_binary(ctx: &Context, op: &Token, left: &Box<Expr>, right: &Box<Expr>) -> EvalResult {
+    let left_value = eval_expr(ctx, left.as_ref())?;
+    let right_value = eval_expr(ctx, right.as_ref())?;
 
     match *op {
         Token::Plus => match left_value {

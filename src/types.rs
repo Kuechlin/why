@@ -13,7 +13,9 @@ pub enum Token {
     Plus,
     Star,
     Slash,
+    DotDot,
     Semicolon,
+    NewLine,
 
     Bang,
     BangEqual,
@@ -48,6 +50,7 @@ pub struct SyntaxErr {
 
 #[derive(Debug)]
 pub enum Expr {
+    Var(String),
     Literal(Value),
     Unary {
         op: Token,
@@ -57,6 +60,19 @@ pub enum Expr {
         op: Token,
         left: Box<Expr>,
         right: Box<Expr>,
+    },
+}
+
+pub enum Type {
+    Number,
+    String,
+    Bool,
+}
+
+pub enum Stmt {
+    Let {
+        identifier: String,
+        initializer: Box<Expr>,
     },
 }
 

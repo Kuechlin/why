@@ -24,10 +24,15 @@ loop {
 }
 */
 
-use std::io::{self, Write};
+use std::{
+    collections::HashMap,
+    io::{self, Write},
+};
 
 use colored::Colorize;
 use types::SyntaxErr;
+
+use crate::{interpretor::Context, types::Value};
 
 mod interpretor;
 mod lexer;
@@ -36,6 +41,10 @@ mod types;
 
 fn main() {
     println!("why?");
+    let mut ctx = Context {
+        enclosing: None,
+        state: HashMap::new(),
+    };
 
     loop {
         print!(">");
@@ -65,7 +74,7 @@ fn main() {
             }
         };
 
-        let result = match interpretor::eval(&expr) {
+        let result = match interpretor::eval(&mut ctx, &expr) {
             Ok(e) => e,
             Err(err) => {
                 println!("{}{}", "error: ".red().bold(), err.red());
@@ -73,8 +82,15 @@ fn main() {
             }
         };
 
-        print!("{}", "result: ".green());
-        println!("{}", result.to_string());
+        match result {
+            Value::Void => {
+                println!("{}", "void".cyan())
+            }
+            res => {
+                print!("{}", "result: ".green());
+                println!("{}", res.to_string());
+            }
+        }
         println!("");
     }
 }

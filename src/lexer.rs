@@ -139,6 +139,7 @@ impl LexerCtx {
             '+' => self.add(Token::Plus),
             '*' => self.add(Token::Star),
             '/' => self.add(Token::Slash),
+            ':' => self.add(Token::DotDot),
             ';' => self.add(Token::Semicolon),
             // operators
             '!' => self.operator(Token::Bang, Token::BangEqual),
@@ -152,7 +153,10 @@ impl LexerCtx {
             '\t' => (),
             '\r' => (),
             // new line
-            '\n' => self.line += 1,
+            '\n' => {
+                self.add(Token::NewLine);
+                self.line += 1;
+            }
             // default
             c => {
                 // number
