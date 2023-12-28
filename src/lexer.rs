@@ -1,4 +1,4 @@
-use crate::types::{SourceMap, Token};
+use crate::types::{SourceMap, SyntaxErr, Token};
 
 struct LexerCtx {
     source: Vec<char>,
@@ -12,6 +12,9 @@ struct LexerCtx {
 impl LexerCtx {
     fn is_end(&self) -> bool {
         self.current >= self.source.len()
+    }
+    fn previous(&self) -> char {
+        self.source[self.current - 1]
     }
     fn peek(&self) -> char {
         match self.is_end() {
@@ -52,7 +55,7 @@ impl LexerCtx {
             self.current += 1;
         }
     }
-    fn string(&mut self) {
+    fn string(&mut self) -> Result<(), SyntaxErr> {
         while self.peek() != '"' && !self.is_end() {
             if self.peek() == '\n' {
                 self.line += 1;
@@ -61,8 +64,17 @@ impl LexerCtx {
         }
 
         if self.is_end() {
-            println!("unterminated string");
-            return;
+            return Err(SyntaxErr {
+                message: "unterminated string".to_owned(),
+                pos: SourceMap {
+                    line: match self.previous() == '\n' {
+                        true => self.line - 1,
+                        false => self.line,
+                    },
+                    start: self.start,
+                    len: self.current - 1 - self.start,
+                },
+            });
         }
 
         self.current += 1;
@@ -70,8 +82,9 @@ impl LexerCtx {
         let value = self.get_string(self.start + 1, self.current - 1);
 
         self.add(Token::String(value));
+        Ok(())
     }
-    fn number(&mut self) {
+    fn number(&mut self) -> Result<(), SyntaxErr> {
         while self.peek().is_digit(10) {
             self.current += 1;
         }
@@ -82,8 +95,18 @@ impl LexerCtx {
             }
         }
         match self.get_current().parse::<f64>() {
-            Ok(value) => self.add(Token::Number(value)),
-            Err(_) => println!("invalid float"),
+            Ok(value) => {
+                self.add(Token::Number(value));
+                Ok(())
+            }
+            Err(_) => Err(SyntaxErr {
+                message: "invalid float".to_owned(),
+                pos: SourceMap {
+                    line: self.line,
+                    start: self.start,
+                    len: self.current - self.start,
+                },
+            }),
         }
     }
     fn identifier(&mut self) {
@@ -101,7 +124,7 @@ impl LexerCtx {
             _ => self.add(Token::Identifier(value)),
         }
     }
-    fn get_next(&mut self) {
+    fn get_next(&mut self) -> Result<(), SyntaxErr> {
         let c = self.advance();
         match c {
             '(' => self.add(Token::LeftParen),
@@ -123,7 +146,7 @@ impl LexerCtx {
             '>' => self.operator(Token::Greater, Token::GreaterEqual),
             '<' => self.operator(Token::Less, Token::LessEqual),
             // string
-            '"' => self.string(),
+            '"' => self.string()?,
             // ignore whitespace
             ' ' => (),
             '\t' => (),
@@ -134,19 +157,27 @@ impl LexerCtx {
             c => {
                 // number
                 if c.is_digit(10) {
-                    self.number()
+                    self.number()?;
                 } else if c.is_alphabetic() {
-                    self.identifier()
+                    self.identifier();
                 } else {
                     // error
-                    println!("invalid token '{c}' at {}:{}", self.line, self.current)
+                    return Err(SyntaxErr {
+                        message: format!("invalid token '{c}'"),
+                        pos: SourceMap {
+                            line: self.line,
+                            start: self.current,
+                            len: 1,
+                        },
+                    });
                 }
             }
         };
+        Ok(())
     }
 }
 
-pub fn scan(input: &str) -> (Vec<Token>, Vec<SourceMap>) {
+pub fn scan(input: &str) -> Result<(Vec<Token>, Vec<SourceMap>), SyntaxErr> {
     let mut ctx = LexerCtx {
         start: 0,
         current: 0,
@@ -157,8 +188,8 @@ pub fn scan(input: &str) -> (Vec<Token>, Vec<SourceMap>) {
     };
     while !ctx.is_end() {
         ctx.start = ctx.current;
-        ctx.get_next()
+        ctx.get_next()?
     }
 
-    return (ctx.tokens, ctx.source_map);
+    return Ok((ctx.tokens, ctx.source_map));
 }

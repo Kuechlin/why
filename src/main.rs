@@ -27,6 +27,7 @@ loop {
 use std::io::{self, Write};
 
 use colored::Colorize;
+use types::SyntaxErr;
 
 mod interpretor;
 mod lexer;
@@ -47,21 +48,19 @@ fn main() {
         let lines: Vec<&str> = buffer.split('\n').collect();
 
         print!("{}{}", "run: ".blue(), buffer);
-        let (tokens, map) = lexer::scan(&buffer);
+        let (tokens, map) = match lexer::scan(&buffer) {
+            Ok(e) => e,
+            Err(err) => {
+                print_err(&lines, &err);
+                continue;
+            }
+        };
 
         println!("tokens: {:?}", tokens);
         let expr = match parser::parse(&tokens, &map) {
             Ok(e) => e,
             Err(err) => {
-                let line = match lines.get(err.pos.line) {
-                    Some(x) => x,
-                    None => "",
-                };
-                println!("{}{}", "error: ".red().bold(), err.message.red());
-                println!("{}{line}", "| ".bold().blue());
-                let space: String = (0..err.pos.start).map(|_| ' ').collect();
-                let line: String = (0..err.pos.len).map(|_| '^').collect();
-                println!("  {space}{}", line.red());
+                print_err(&lines, &err);
                 continue;
             }
         };
@@ -78,4 +77,23 @@ fn main() {
         println!("{}", result.to_string());
         println!("");
     }
+}
+
+fn times(x: usize, v: char) -> String {
+    (0..x).map(|_| v).collect()
+}
+
+fn print_err(lines: &Vec<&str>, err: &SyntaxErr) {
+    let line = match lines.get(err.pos.line) {
+        Some(x) => x,
+        None => "",
+    };
+    let nr = err.pos.line.to_string();
+
+    println!("{}{}", "error: ".red().bold(), err.message.red());
+
+    println!(" {}{}{line}", nr.bold().blue(), " | ".bold().blue());
+    let space = times(err.pos.start + 4 + nr.len(), ' ');
+    let line = times(err.pos.len, '^');
+    println!("{space}{}", line.red());
 }
