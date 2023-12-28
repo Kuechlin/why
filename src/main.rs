@@ -50,14 +50,8 @@ fn main() {
         let (tokens, map) = lexer::scan(&buffer);
 
         println!("tokens: {:?}", tokens);
-        let expr = parser::parse(&tokens, &map);
-
-        match expr {
-            Ok(x) => {
-                let result = interpretor::eval(&x);
-                print!("{}", "result: ".green());
-                println!("{}", result.to_string())
-            }
+        let expr = match parser::parse(&tokens, &map) {
+            Ok(e) => e,
             Err(err) => {
                 let line = match lines.get(err.pos.line) {
                     Some(x) => x,
@@ -67,9 +61,21 @@ fn main() {
                 println!("{}{line}", "| ".bold().blue());
                 let space: String = (0..err.pos.start).map(|_| ' ').collect();
                 let line: String = (0..err.pos.len).map(|_| '^').collect();
-                println!("  {space}{}", line.red())
+                println!("  {space}{}", line.red());
+                continue;
             }
-        }
+        };
+
+        let result = match interpretor::eval(&expr) {
+            Ok(e) => e,
+            Err(err) => {
+                println!("{}{}", "error: ".red().bold(), err.red());
+                continue;
+            }
+        };
+
+        print!("{}", "result: ".green());
+        println!("{}", result.to_string());
         println!("");
     }
 }

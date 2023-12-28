@@ -38,8 +38,8 @@ impl ParserCtx<'_, '_> {
     fn previous(&self) -> Token {
         self.tokens[self.current - 1].clone()
     }
-    fn error(&self, msg: &'static str) -> SyntaxErr {
-        let pos = match self.source_map.get(self.current) {
+    fn error(&self, msg: &'static str, i: usize) -> SyntaxErr {
+        let pos = match self.source_map.get(i) {
             Some(x) => x,
             None => &SourceMap {
                 start: 0,
@@ -126,7 +126,7 @@ impl ParserCtx<'_, '_> {
     fn unary(&mut self) -> ParserResult {
         if self.is(&[Token::Bang, Token::Minus]) {
             let op = self.previous();
-            let expr = self.primary()?;
+            let expr = self.unary()?;
             return Ok(Box::new(Expr::Unary { op, expr }));
         }
         self.primary()
@@ -141,12 +141,12 @@ impl ParserCtx<'_, '_> {
                 // group
                 let expr = self.expression()?;
                 if !self.is(&[Token::RightParen]) {
-                    Err(self.error("Expect ')' after expression."))
+                    Err(self.error("Expect ')' after expression.", self.current))
                 } else {
                     Ok(expr)
                 }
             }
-            t => panic!("invalid token {:?}", t),
+            _ => Err(self.error("invalid token", self.current - 1)),
         }
     }
 }
