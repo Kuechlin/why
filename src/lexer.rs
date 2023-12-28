@@ -1,43 +1,6 @@
 use std::collections::HashMap;
 
-#[derive(PartialEq, Clone, Debug)]
-pub enum Token {
-    LeftParen,
-    RightParen,
-    LeftBrace,
-    RightBrace,
-    LeftBracket,
-    RightBracket,
-
-    Comma,
-    Dot,
-    Minus,
-    Plus,
-    Star,
-    Slash,
-    Semicolon,
-
-    Bang,
-    BangEqual,
-    Equal,
-    EqualEqual,
-    Greater,
-    GreaterEqual,
-    Less,
-    LessEqual,
-
-    Identifier(String),
-    String(String),
-    Number(f64),
-    Bool(bool),
-
-    Fn,
-    If,
-    Let,
-}
-
-pub type SourceMap = HashMap<usize, Point>;
-pub struct Point(usize, usize);
+use crate::types::{SourceMap, Token};
 
 struct LexerCtx {
     source: Vec<char>,
@@ -45,7 +8,7 @@ struct LexerCtx {
     current: usize,
     line: usize,
     tokens: Vec<Token>,
-    source_map: SourceMap,
+    source_map: Vec<SourceMap>,
 }
 
 impl LexerCtx {
@@ -70,8 +33,11 @@ impl LexerCtx {
         return val;
     }
     fn add(&mut self, t: Token) {
-        let id = self.tokens.len();
-        self.source_map.insert(id, Point(self.start, self.line));
+        self.source_map.push(SourceMap {
+            start: self.start,
+            len: self.current - self.start,
+            line: self.line,
+        });
         self.tokens.push(t);
     }
     fn get_current(&self) -> String {
@@ -182,19 +148,19 @@ impl LexerCtx {
     }
 }
 
-pub fn scan(input: &str) -> Vec<Token> {
+pub fn scan(input: &str) -> (Vec<Token>, Vec<SourceMap>) {
     let mut ctx = LexerCtx {
         start: 0,
         current: 0,
         line: 0,
         tokens: Vec::new(),
         source: input.chars().collect(),
-        source_map: HashMap::new(),
+        source_map: Vec::new(),
     };
     while !ctx.is_end() {
         ctx.start = ctx.current;
         ctx.get_next()
     }
 
-    return ctx.tokens;
+    return (ctx.tokens, ctx.source_map);
 }

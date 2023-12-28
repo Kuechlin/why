@@ -26,10 +26,12 @@ loop {
 
 use std::io::{self, Write};
 
-mod expressions;
+use colored::Colorize;
+
 mod interpretor;
 mod lexer;
 mod parser;
+mod types;
 
 fn main() {
     println!("why?");
@@ -42,14 +44,32 @@ fn main() {
         let stdin = io::stdin();
         let _ = stdin.read_line(&mut buffer);
 
-        print!("run: {}", buffer);
-        let tokens = lexer::scan(&buffer);
+        let lines: Vec<&str> = buffer.split('\n').collect();
+
+        print!("{}{}", "run: ".blue(), buffer);
+        let (tokens, map) = lexer::scan(&buffer);
+
         println!("tokens: {:?}", tokens);
-        let expr = parser::parse(&tokens);
+        let expr = parser::parse(&tokens, &map);
 
-        let result = interpretor::eval(&expr);
-
-        print!("result: ");
-        println!("{}", result.to_string())
+        match expr {
+            Ok(x) => {
+                let result = interpretor::eval(&x);
+                print!("{}", "result: ".green());
+                println!("{}", result.to_string())
+            }
+            Err(err) => {
+                let line = match lines.get(err.pos.line) {
+                    Some(x) => x,
+                    None => "",
+                };
+                println!("{}{}", "error: ".red().bold(), err.message.red());
+                println!("{}{line}", "| ".bold().blue());
+                let space: String = (0..err.pos.start).map(|_| ' ').collect();
+                let line: String = (0..err.pos.len).map(|_| '^').collect();
+                println!("  {space}{}", line.red())
+            }
+        }
+        println!("");
     }
 }

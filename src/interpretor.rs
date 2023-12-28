@@ -1,7 +1,4 @@
-use crate::{
-    expressions::{Expr, Value},
-    lexer::Token,
-};
+use crate::types::{Expr, Token, Value};
 
 pub fn eval(expr: &Box<Expr>) -> Value {
     match expr.as_ref() {
