@@ -86,11 +86,11 @@ fn eval_expr(ctx: &Context, expr: &Expr) -> EvalResult {
     }
 }
 
-fn is_truthy(val: Value) -> bool {
+fn is_truthy(val: &Value) -> bool {
     match val {
-        Value::Number(x) => x != 0.0,
+        Value::Number(x) => *x != 0.0,
         Value::String(x) => !x.is_empty(),
-        Value::Bool(x) => x,
+        Value::Bool(x) => *x,
         Value::Void => false,
     }
 }
@@ -99,7 +99,7 @@ fn visit_unary(ctx: &Context, op: &Token, expr: &Box<Expr>) -> EvalResult {
     let value = eval_expr(ctx, expr.as_ref())?;
 
     if *op == Token::Bang {
-        Ok(Value::Bool(!is_truthy(value)))
+        Ok(Value::Bool(!is_truthy(&value)))
     } else if *op == Token::Minus {
         match value {
             Value::Number(x) => Ok(Value::Number(-x)),
