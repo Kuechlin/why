@@ -40,19 +40,38 @@ mod parser;
 mod types;
 
 fn main() {
-    println!("why?");
+    println!(
+        "{}",
+        "
+                __                  
+               /\\ \\                 
+     __  __  __\\ \\ \\___   __  __
+    /\\ \\/\\ \\/\\ \\\\ \\  _ `\\/\\ \\/\\ \\
+    \\ \\ \\_/ \\_/ \\\\ \\ \\ \\ \\ \\ \\_\\ \\
+     \\ \\___x___/' \\ \\_\\ \\_\\/`____ \\
+      \\/__//__/    \\/_/\\/_/`/___/> \\
+                              /\\___/
+                              \\/__/
+"
+        .blue()
+    );
     let mut ctx = Context {
         enclosing: None,
         state: HashMap::new(),
     };
-
+    let mut stdout = io::stdout();
+    let stdin = io::stdin();
     loop {
-        print!(">");
-        let _ = io::stdout().flush();
+        print!("> ");
+        let _ = stdout.flush();
         // read
         let mut buffer = String::new();
-        let stdin = io::stdin();
-        let _ = stdin.read_line(&mut buffer);
+        while !buffer.trim_end().ends_with(";;") {
+            let _ = stdin.read_line(&mut buffer);
+            print!("| ");
+            let _ = stdout.flush();
+        }
+        buffer = buffer[0..buffer.len() - 3].to_string();
 
         let lines: Vec<&str> = buffer.split('\n').collect();
 

@@ -2,6 +2,7 @@ use std::any::Any;
 
 use crate::types::{Expr, SourceMap, Stmt, SyntaxErr, Token, Value};
 
+type ParserResult = Result<Box<dyn Any>, SyntaxErr>;
 type ExprResult = Result<Box<Expr>, SyntaxErr>;
 
 struct ParserCtx<'a, 'b> {
@@ -56,20 +57,34 @@ impl ParserCtx<'_, '_> {
     }
 
     // statement
-    fn statement(&mut self) -> Result<Box<dyn Any>, SyntaxErr> {
-        if self.is(&[Token::Let]) {
-            let stmt = self.variable()?;
-            Ok(stmt)
+    fn statement(&mut self) -> ParserResult {
+        self.block()
+    }
+
+    fn block(&mut self) -> ParserResult {
+        if !self.is(&[Token::LeftBrace]) {
+            return Ok(self.variable()?);
+        }
+
+        let mut stmts = Vec::new();
+        while !self.check(Token::RightBrace) && !self.is_end() {
+            stmts.push(self.statement()?)
+        }
+        if self.is(&[Token::RightBrace]) {
+            Ok(Box::new(Stmt::Block(stmts)))
         } else {
-            let expr = self.expression()?;
-            Ok(expr)
+            Err(self.error("Expect '}' at end of block", self.current))
         }
     }
 
-    fn variable(&mut self) -> Result<Box<Stmt>, SyntaxErr> {
+    fn variable(&mut self) -> ParserResult {
+        if !self.is(&[Token::Let]) {
+            return Ok(self.expression()?);
+        }
+
         let identifier = match self.advance() {
             Token::Identifier(name) => name,
-            _ => return Err(self.error("Identifier expected", self.current)),
+            _ => return Err(self.error("Identifier expected", self.current - 1)),
         };
         if self.is(&[Token::DotDot]) {
             // parse type def
@@ -81,8 +96,8 @@ impl ParserCtx<'_, '_> {
 
         if self.is(&[Token::Semicolon, Token::NewLine]) {
             Ok(Box::new(Stmt::Let {
-                identifier,
-                initializer,
+                name: identifier,
+                expr: initializer,
             }))
         } else {
             Err(self.error("Expect ';' or new line after statement", self.current))
@@ -188,12 +203,19 @@ impl ParserCtx<'_, '_> {
     }
 }
 
-pub fn parse(tokens: &Vec<Token>, source_map: &Vec<SourceMap>) -> Result<Box<dyn Any>, SyntaxErr> {
+pub fn parse(tokens: &Vec<Token>, source_map: &Vec<SourceMap>) -> ParserResult {
     let mut ctx = ParserCtx {
         tokens,
         source_map,
         current: 0,
     };
 
-    ctx.statement()
+    let mut stmts = Vec::new();
+    while !ctx.is_end() {
+        if ctx.is(&[Token::NewLine]) {
+            continue;
+        }
+        stmts.push(ctx.statement()?)
+    }
+    Ok(Box::new(Stmt::Block(stmts)))
 }

@@ -24,8 +24,13 @@ impl Context<'_> {
         }
         return Value::Void;
     }
-    fn set(&mut self, key: &str, val: Value) {
-        let _ = self.state.insert(key.to_string(), val);
+    fn set(&mut self, key: &str, val: Value) -> Result<(), &'static str> {
+        if self.state.contains_key(key) {
+            Err("can't reassign a value to immutable variable")
+        } else {
+            let _ = self.state.insert(key.to_string(), val);
+            Ok(())
+        }
     }
 }
 
@@ -48,16 +53,26 @@ pub fn eval(ctx: &mut Context, input: &Box<dyn Any>) -> EvalResult {
 // statements
 fn eval_stmt(ctx: &mut Context, stmt: &Stmt) -> EvalResult {
     match stmt {
+        Stmt::Block(stmts) => visit_block(ctx, stmts),
         Stmt::Let {
-            identifier,
-            initializer,
+            name: identifier,
+            expr: initializer,
         } => visit_let(ctx, identifier, initializer),
     }
 }
 
+fn visit_block(enclosing: &mut Context, stmts: &Vec<Box<dyn Any>>) -> EvalResult {
+    let mut _ctx = enclosing.derive();
+    let mut result = Value::Void;
+    for stmt in stmts {
+        result = eval(&mut _ctx, stmt)?;
+    }
+    Ok(result)
+}
+
 fn visit_let(ctx: &mut Context, name: &str, expr: &Box<Expr>) -> EvalResult {
     let value = eval_expr(ctx, expr.as_ref())?;
-    ctx.set(name, value);
+    ctx.set(name, value)?;
     Ok(Value::Void)
 }
 

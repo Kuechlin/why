@@ -1,3 +1,5 @@
+use std::any::Any;
+
 #[derive(PartialEq, Clone, Debug)]
 pub enum Token {
     LeftParen,
@@ -62,18 +64,17 @@ pub enum Expr {
         right: Box<Expr>,
     },
 }
-
+/*
 pub enum Type {
     Number,
     String,
     Bool,
 }
+*/
 
 pub enum Stmt {
-    Let {
-        identifier: String,
-        initializer: Box<Expr>,
-    },
+    Let { name: String, expr: Box<Expr> },
+    Block(Vec<Box<dyn Any>>),
 }
 
 #[derive(PartialEq, PartialOrd, Clone, Debug)]
