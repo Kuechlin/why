@@ -1,17 +1,13 @@
-use std::any::Any;
+use crate::types::{Node, SyntaxErr, Token, TokenData};
 
-use crate::types::{Expr, SourceMap, Stmt, SyntaxErr, Token, Value};
+type ParserResult = Result<Box<Node>, SyntaxErr>;
 
-type ParserResult = Result<Box<dyn Any>, SyntaxErr>;
-type ExprResult = Result<Box<Expr>, SyntaxErr>;
-
-struct ParserCtx<'a, 'b> {
-    tokens: &'a Vec<Token>,
-    source_map: &'b Vec<SourceMap>,
+struct ParserCtx<'a> {
+    tokens: &'a Vec<TokenData>,
     current: usize,
 }
 
-impl ParserCtx<'_, '_> {
+impl ParserCtx<'_> {
     fn is_end(&self) -> bool {
         self.current >= self.tokens.len()
     }
@@ -19,15 +15,12 @@ impl ParserCtx<'_, '_> {
         if self.is_end() {
             return false;
         }
-        self.tokens[self.current] == t
+        self.tokens[self.current].token == t
     }
-    fn advance(&mut self) -> Token {
-        if self.is_end() {
-            return Token::Semicolon;
-        }
-        let value = self.tokens[self.current].clone();
+    fn advance(&mut self) -> TokenData {
+        let value = &self.tokens[self.current];
         self.current += 1;
-        return value;
+        value.clone()
     }
     fn is(&mut self, tokens: &[Token]) -> bool {
         for t in tokens {
@@ -38,21 +31,16 @@ impl ParserCtx<'_, '_> {
         }
         return false;
     }
-    fn previous(&self) -> Token {
+    fn previous(&self) -> TokenData {
         self.tokens[self.current - 1].clone()
     }
-    fn error(&self, msg: &'static str, i: usize) -> SyntaxErr {
-        let pos = match self.source_map.get(i) {
-            Some(x) => x,
-            None => &SourceMap {
-                start: 0,
-                len: 0,
-                line: 0,
-            },
-        };
+    fn current(&self) -> TokenData {
+        self.tokens[self.current].clone()
+    }
+    fn error(&self, msg: &'static str, token: &TokenData) -> SyntaxErr {
         SyntaxErr {
             message: msg.to_owned(),
-            pos: *pos,
+            source: token.source,
         }
     }
 
@@ -71,9 +59,9 @@ impl ParserCtx<'_, '_> {
             stmts.push(self.statement()?)
         }
         if self.is(&[Token::RightBrace]) {
-            Ok(Box::new(Stmt::Block(stmts)))
+            Ok(Box::new(Node::Block(stmts)))
         } else {
-            Err(self.error("Expect '}' at end of block", self.current))
+            Err(self.error("Expect '}' at end of block", &self.current()))
         }
     }
 
@@ -82,40 +70,38 @@ impl ParserCtx<'_, '_> {
             return Ok(self.expression()?);
         }
 
-        let identifier = match self.advance() {
-            Token::Identifier(name) => name,
-            _ => return Err(self.error("Identifier expected", self.current - 1)),
+        let name = self.advance();
+        match name.token {
+            Token::Identifier(_) => (),
+            _ => return Err(self.error("Identifier expected", &self.previous())),
         };
         if self.is(&[Token::DotDot]) {
             // parse type def
         }
-        let initializer = match self.is(&[Token::Equal]) {
+        let expr = match self.is(&[Token::Equal]) {
             true => self.expression()?,
-            false => Box::new(Expr::Literal(Value::Void)),
+            _ => return Err(self.error("Initializer expected", &self.current())),
         };
 
         if self.is(&[Token::Semicolon, Token::NewLine]) {
-            Ok(Box::new(Stmt::Let {
-                name: identifier,
-                expr: initializer,
-            }))
+            Ok(Box::new(Node::Let { name, node: expr }))
         } else {
-            Err(self.error("Expect ';' or new line after statement", self.current))
+            Err(self.error("Expect ';' or new line after statement", &self.current()))
         }
     }
 
     // expressions
-    fn expression(&mut self) -> ExprResult {
+    fn expression(&mut self) -> ParserResult {
         self.equality()
     }
     // comparison (!= | ==) comparison
-    fn equality(&mut self) -> ExprResult {
+    fn equality(&mut self) -> ParserResult {
         let mut expr = self.comparison()?;
 
         while self.is(&[Token::BangEqual, Token::EqualEqual]) {
             let op = self.previous();
             let right = self.comparison()?;
-            expr = Box::new(Expr::Binary {
+            expr = Box::new(Node::Binary {
                 op,
                 left: expr,
                 right,
@@ -124,7 +110,7 @@ impl ParserCtx<'_, '_> {
         Ok(expr)
     }
     // term (< | <= | > | >=) term
-    fn comparison(&mut self) -> ExprResult {
+    fn comparison(&mut self) -> ParserResult {
         let mut expr = self.term()?;
 
         while self.is(&[
@@ -135,7 +121,7 @@ impl ParserCtx<'_, '_> {
         ]) {
             let op = self.previous();
             let right = self.term()?;
-            expr = Box::new(Expr::Binary {
+            expr = Box::new(Node::Binary {
                 op,
                 left: expr,
                 right,
@@ -144,13 +130,13 @@ impl ParserCtx<'_, '_> {
         Ok(expr)
     }
     // factory (+ | -) factory
-    fn term(&mut self) -> ExprResult {
+    fn term(&mut self) -> ParserResult {
         let mut expr = self.factory()?;
 
         while self.is(&[Token::Plus, Token::Minus]) {
             let op = self.previous();
             let right = self.factory()?;
-            expr = Box::new(Expr::Binary {
+            expr = Box::new(Node::Binary {
                 op,
                 left: expr,
                 right,
@@ -159,13 +145,13 @@ impl ParserCtx<'_, '_> {
         Ok(expr)
     }
     // unary (* | /) unary
-    fn factory(&mut self) -> ExprResult {
+    fn factory(&mut self) -> ParserResult {
         let mut expr = self.unary()?;
 
         while self.is(&[Token::Star, Token::Slash]) {
             let op = self.previous();
             let right = self.unary()?;
-            expr = Box::new(Expr::Binary {
+            expr = Box::new(Node::Binary {
                 op,
                 left: expr,
                 right,
@@ -174,41 +160,38 @@ impl ParserCtx<'_, '_> {
         Ok(expr)
     }
     // (! | -) unary | primary
-    fn unary(&mut self) -> ExprResult {
+    fn unary(&mut self) -> ParserResult {
         if self.is(&[Token::Bang, Token::Minus]) {
             let op = self.previous();
             let expr = self.unary()?;
-            return Ok(Box::new(Expr::Unary { op, expr }));
+            return Ok(Box::new(Node::Unary { op, node: expr }));
         }
         self.primary()
     }
     // int, float, string, bool, expression
-    fn primary(&mut self) -> ExprResult {
-        match self.advance() {
-            Token::Bool(val) => Ok(Box::new(Expr::Literal(Value::Bool(val)))),
-            Token::Number(val) => Ok(Box::new(Expr::Literal(Value::Number(val)))),
-            Token::String(val) => Ok(Box::new(Expr::Literal(Value::String(val.to_string())))),
-            Token::Identifier(val) => Ok(Box::new(Expr::Var(val))),
+    fn primary(&mut self) -> ParserResult {
+        let current = self.advance();
+        match current.token {
+            Token::Bool(_) => Ok(Box::new(Node::Literal(current))),
+            Token::Number(_) => Ok(Box::new(Node::Literal(current))),
+            Token::String(_) => Ok(Box::new(Node::Literal(current))),
+            Token::Identifier(_) => Ok(Box::new(Node::Literal(current))),
             Token::LeftParen => {
                 // group
                 let expr = self.expression()?;
                 if !self.is(&[Token::RightParen]) {
-                    Err(self.error("Expect ')' after expression.", self.current))
+                    Err(self.error("Expect ')' after expression.", &self.current()))
                 } else {
                     Ok(expr)
                 }
             }
-            _ => Err(self.error("invalid token", self.current - 1)),
+            _ => Err(self.error("invalid token", &current)),
         }
     }
 }
 
-pub fn parse(tokens: &Vec<Token>, source_map: &Vec<SourceMap>) -> ParserResult {
-    let mut ctx = ParserCtx {
-        tokens,
-        source_map,
-        current: 0,
-    };
+pub fn parse(tokens: &Vec<TokenData>) -> ParserResult {
+    let mut ctx = ParserCtx { tokens, current: 0 };
 
     let mut stmts = Vec::new();
     while !ctx.is_end() {
@@ -217,5 +200,5 @@ pub fn parse(tokens: &Vec<Token>, source_map: &Vec<SourceMap>) -> ParserResult {
         }
         stmts.push(ctx.statement()?)
     }
-    Ok(Box::new(Stmt::Block(stmts)))
+    Ok(Box::new(Node::Block(stmts)))
 }

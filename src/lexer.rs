@@ -1,12 +1,11 @@
-use crate::types::{SourceMap, SyntaxErr, Token};
+use crate::types::{SourceMap, SyntaxErr, Token, TokenData};
 
 struct LexerCtx {
     source: Vec<char>,
     start: usize,
     current: usize,
     line: usize,
-    tokens: Vec<Token>,
-    source_map: Vec<SourceMap>,
+    tokens: Vec<TokenData>,
 }
 
 impl LexerCtx {
@@ -34,12 +33,14 @@ impl LexerCtx {
         return val;
     }
     fn add(&mut self, t: Token) {
-        self.source_map.push(SourceMap {
-            start: self.start,
-            len: self.current - self.start,
-            line: self.line,
+        self.tokens.push(TokenData {
+            token: t,
+            source: SourceMap {
+                start: self.start,
+                len: self.current - self.start,
+                line: self.line,
+            },
         });
-        self.tokens.push(t);
     }
     fn get_current(&self) -> String {
         self.get_string(self.start, self.current)
@@ -66,7 +67,7 @@ impl LexerCtx {
         if self.is_end() {
             return Err(SyntaxErr {
                 message: "unterminated string".to_owned(),
-                pos: SourceMap {
+                source: SourceMap {
                     line: match self.previous() == '\n' {
                         true => self.line - 1,
                         false => self.line,
@@ -101,7 +102,7 @@ impl LexerCtx {
             }
             Err(_) => Err(SyntaxErr {
                 message: "invalid float".to_owned(),
-                pos: SourceMap {
+                source: SourceMap {
                     line: self.line,
                     start: self.start,
                     len: self.current - self.start,
@@ -168,7 +169,7 @@ impl LexerCtx {
                     // error
                     return Err(SyntaxErr {
                         message: format!("invalid token '{c}'"),
-                        pos: SourceMap {
+                        source: SourceMap {
                             line: self.line,
                             start: self.current,
                             len: 1,
@@ -181,19 +182,18 @@ impl LexerCtx {
     }
 }
 
-pub fn scan(input: &str) -> Result<(Vec<Token>, Vec<SourceMap>), SyntaxErr> {
+pub fn scan(input: &str) -> Result<Vec<TokenData>, SyntaxErr> {
     let mut ctx = LexerCtx {
         start: 0,
         current: 0,
         line: 0,
         tokens: Vec::new(),
         source: input.chars().collect(),
-        source_map: Vec::new(),
     };
     while !ctx.is_end() {
         ctx.start = ctx.current;
         ctx.get_next()?
     }
 
-    return Ok((ctx.tokens, ctx.source_map));
+    return Ok(ctx.tokens);
 }

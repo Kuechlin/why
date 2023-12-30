@@ -34,6 +34,7 @@ use types::SyntaxErr;
 
 use crate::{interpretor::Context, types::Value};
 
+mod analyser;
 mod interpretor;
 mod lexer;
 mod parser;
@@ -76,7 +77,7 @@ fn main() {
         let lines: Vec<&str> = buffer.split('\n').collect();
 
         print!("{}{}", "run: ".blue(), buffer);
-        let (tokens, map) = match lexer::scan(&buffer) {
+        let tokens = match lexer::scan(&buffer) {
             Ok(e) => e,
             Err(err) => {
                 print_err(&lines, &err);
@@ -84,8 +85,7 @@ fn main() {
             }
         };
 
-        println!("tokens: {:?}", tokens);
-        let expr = match parser::parse(&tokens, &map) {
+        let node = match parser::parse(&tokens) {
             Ok(e) => e,
             Err(err) => {
                 print_err(&lines, &err);
@@ -93,10 +93,18 @@ fn main() {
             }
         };
 
-        let result = match interpretor::eval(&mut ctx, &expr) {
+        let expr = match analyser::analyse(&node) {
             Ok(e) => e,
             Err(err) => {
-                println!("{}{}", "error: ".red().bold(), err.red());
+                print_err(&lines, &err);
+                continue;
+            }
+        };
+
+        let result = match ctx.eval(&expr) {
+            Ok(e) => e,
+            Err(err) => {
+                println!("{}{}", "error: ".red().bold(), err.message.red());
                 continue;
             }
         };
@@ -119,16 +127,16 @@ fn times(x: usize, v: char) -> String {
 }
 
 fn print_err(lines: &Vec<&str>, err: &SyntaxErr) {
-    let line = match lines.get(err.pos.line) {
+    let line = match lines.get(err.source.line) {
         Some(x) => x,
         None => "",
     };
-    let nr = err.pos.line.to_string();
+    let nr = err.source.line.to_string();
 
     println!("{}{}", "error: ".red().bold(), err.message.red());
 
     println!(" {}{}{line}", nr.bold().blue(), " | ".bold().blue());
-    let space = times(err.pos.start + 4 + nr.len(), ' ');
-    let line = times(err.pos.len, '^');
+    let space = times(err.source.start + 4 + nr.len(), ' ');
+    let line = times(err.source.len, '^');
     println!("{space}{}", line.red());
 }
