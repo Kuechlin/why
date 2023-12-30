@@ -33,6 +33,7 @@ pub enum Token {
 
     Fn,
     If,
+    Else,
     Let,
 }
 
@@ -69,11 +70,17 @@ pub enum Node {
         left: Box<Node>,
         right: Box<Node>,
     },
+    Block(Vec<Box<Node>>),
     Let {
         name: TokenData,
         node: Box<Node>,
     },
-    Block(Vec<Box<Node>>),
+    If {
+        cond: Box<Node>,
+        then: Box<Node>,
+        or: Option<Box<Node>>,
+        _if: TokenData,
+    },
 }
 
 #[derive(PartialEq, Clone, Copy)]
@@ -139,12 +146,18 @@ pub enum Expr {
         right: Box<Expr>,
         typedef: Type,
     },
+    Block {
+        stmts: Vec<Box<Expr>>,
+    },
     Let {
         name: String,
         expr: Box<Expr>,
     },
-    Block {
-        stmts: Vec<Box<Expr>>,
+    If {
+        cond: Box<Expr>,
+        then: Box<Expr>,
+        or: Option<Box<Expr>>,
+        typedef: Type,
     },
 }
 
@@ -164,11 +177,17 @@ impl Expr {
                 right: _,
                 typedef,
             } => *typedef,
-            Expr::Let { name: _, expr } => expr.get_type(),
             Expr::Block { stmts } => match stmts.last() {
                 Some(expr) => expr.as_ref().get_type(),
                 None => Type::Void,
             },
+            Expr::Let { name: _, expr } => expr.get_type(),
+            Expr::If {
+                cond: _,
+                then: _,
+                or: _,
+                typedef,
+            } => *typedef,
         }
     }
 }

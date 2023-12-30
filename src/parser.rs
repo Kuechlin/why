@@ -37,11 +37,11 @@ impl ParserCtx<'_> {
     fn current(&self) -> TokenData {
         self.tokens[self.current].clone()
     }
-    fn error(&self, msg: &'static str, token: &TokenData) -> SyntaxErr {
-        SyntaxErr {
+    fn error(&self, msg: &'static str, token: &TokenData) -> ParserResult {
+        Err(SyntaxErr {
             message: msg.to_owned(),
             source: token.source,
-        }
+        })
     }
 
     // statement
@@ -61,33 +61,61 @@ impl ParserCtx<'_> {
         if self.is(&[Token::RightBrace]) {
             Ok(Box::new(Node::Block(stmts)))
         } else {
-            Err(self.error("Expect '}' at end of block", &self.current()))
+            self.error("Expect '}' at end of block", &self.current())
         }
     }
 
     fn variable(&mut self) -> ParserResult {
         if !self.is(&[Token::Let]) {
-            return Ok(self.expression()?);
+            return Ok(self.condition()?);
         }
 
         let name = self.advance();
         match name.token {
             Token::Identifier(_) => (),
-            _ => return Err(self.error("Identifier expected", &self.previous())),
+            _ => return self.error("Identifier expected", &self.previous()),
         };
         if self.is(&[Token::DotDot]) {
             // parse type def
         }
         let expr = match self.is(&[Token::Equal]) {
             true => self.expression()?,
-            _ => return Err(self.error("Initializer expected", &self.current())),
+            _ => return self.error("Initializer expected", &self.current()),
         };
 
         if self.is(&[Token::Semicolon, Token::NewLine]) {
             Ok(Box::new(Node::Let { name, node: expr }))
         } else {
-            Err(self.error("Expect ';' or new line after statement", &self.current()))
+            self.error("Expect ';' or new line after statement", &self.current())
         }
+    }
+
+    fn condition(&mut self) -> ParserResult {
+        if !self.is(&[Token::If]) {
+            return Ok(self.expression()?);
+        }
+        let _if = self.previous();
+
+        let cond = self.expression()?;
+        if !self.check(Token::LeftBrace) {
+            return self.error("Expected block statement", &self.current());
+        }
+        let then = self.block()?;
+        if !self.is(&[Token::Else]) {
+            return Ok(Box::new(Node::If {
+                _if,
+                cond,
+                then,
+                or: None,
+            }));
+        }
+        let or = Some(self.statement()?);
+        return Ok(Box::new(Node::If {
+            _if,
+            cond,
+            then,
+            or,
+        }));
     }
 
     // expressions
@@ -180,12 +208,12 @@ impl ParserCtx<'_> {
                 // group
                 let expr = self.expression()?;
                 if !self.is(&[Token::RightParen]) {
-                    Err(self.error("Expect ')' after expression.", &self.current()))
+                    self.error("Expect ')' after expression.", &self.current())
                 } else {
                     Ok(expr)
                 }
             }
-            _ => Err(self.error("invalid token", &current)),
+            _ => self.error("invalid token", &current),
         }
     }
 }

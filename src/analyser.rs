@@ -47,8 +47,14 @@ impl AnalyserCtx<'_> {
     // statements
     fn visit(&mut self, node: &Box<Node>) -> AnalyserResult {
         match node.as_ref() {
-            Node::Let { name, node } => self.visit_let(name, node),
             Node::Block(nodes) => self.visit_block(nodes),
+            Node::Let { name, node } => self.visit_let(name, node),
+            Node::If {
+                cond,
+                then,
+                or,
+                _if,
+            } => self.visit_if(_if, cond, then, or),
             _ => Ok(self.visit_expr(node)?),
         }
     }
@@ -71,6 +77,40 @@ impl AnalyserCtx<'_> {
         match self.set(&key, expr.get_type()) {
             Ok(_) => Ok(Box::new(Expr::Let { name: key, expr })),
             Err(err) => error(err, name),
+        }
+    }
+
+    fn visit_if(
+        &mut self,
+        token: &TokenData,
+        cond: &Box<Node>,
+        then: &Box<Node>,
+        or: &Option<Box<Node>>,
+    ) -> AnalyserResult {
+        let cond_expr = self.visit_expr(cond)?;
+        let then_expr = self.visit(then)?;
+        let typedef = then_expr.get_type();
+
+        match or {
+            Some(node) => {
+                let expr = self.visit(node)?;
+                if expr.get_type() != typedef {
+                    error("if and else arms need to return the same value", token)
+                } else {
+                    Ok(Box::new(Expr::If {
+                        cond: cond_expr,
+                        then: then_expr,
+                        or: Some(expr),
+                        typedef,
+                    }))
+                }
+            }
+            None => Ok(Box::new(Expr::If {
+                cond: cond_expr,
+                then: then_expr,
+                or: None,
+                typedef,
+            })),
         }
     }
 

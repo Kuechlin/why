@@ -43,6 +43,12 @@ impl Context<'_> {
         match input.as_ref() {
             Expr::Block { stmts } => self.eval_block(stmts),
             Expr::Let { name, expr } => self.eval_let(name, expr),
+            Expr::If {
+                cond,
+                then,
+                or,
+                typedef: _,
+            } => self.eval_if(cond, then, or),
             _ => self.eval_expr(input),
         }
     }
@@ -61,6 +67,23 @@ impl Context<'_> {
         match self.set(name, value) {
             Ok(_) => Ok(Value::Void),
             Err(err) => error(err),
+        }
+    }
+
+    fn eval_if(
+        &mut self,
+        cond: &Box<Expr>,
+        then: &Box<Expr>,
+        or: &Option<Box<Expr>>,
+    ) -> EvalResult {
+        let check = self.eval_expr(cond)?.is_truthy();
+        if check {
+            self.eval(then)
+        } else {
+            match or {
+                Some(expr) => self.eval(expr),
+                None => Ok(Value::Void),
+            }
         }
     }
 
