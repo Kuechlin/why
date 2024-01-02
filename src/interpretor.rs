@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::types::{Expr, RuntimeErr, Token, Value};
+use crate::types::{Expr, RuntimeErr, Token, Type, Value};
 
 type EvalResult = Result<Value, RuntimeErr>;
 
@@ -15,7 +15,13 @@ pub struct Context<'a> {
     pub state: HashMap<String, Value>,
 }
 impl Context<'_> {
-    fn derive(&self) -> Context {
+    pub fn new<'a>() -> Context<'a> {
+        Context {
+            enclosing: None,
+            state: HashMap::new(),
+        }
+    }
+    fn derive(&mut self) -> Context {
         Context {
             enclosing: Some(self),
             state: HashMap::new(),
@@ -25,10 +31,10 @@ impl Context<'_> {
         if self.state.contains_key(key) {
             return self.state.get(key).unwrap().clone();
         }
-        if self.enclosing.is_some() {
-            return self.enclosing.unwrap().get(key);
+        match self.enclosing {
+            Some(e) => e.get(key),
+            None => Value::Void,
         }
-        return Value::Void;
     }
     fn set(&mut self, key: &str, val: Value) -> Result<(), &'static str> {
         if self.state.contains_key(key) {
@@ -39,8 +45,8 @@ impl Context<'_> {
         }
     }
 
-    pub fn eval(&mut self, input: &Box<Expr>) -> EvalResult {
-        match input.as_ref() {
+    pub fn eval(&mut self, input: &Expr) -> EvalResult {
+        match input {
             Expr::Block { stmts } => self.eval_block(stmts),
             Expr::Let { name, expr } => self.eval_let(name, expr),
             Expr::If {
@@ -49,11 +55,30 @@ impl Context<'_> {
                 or,
                 typedef: _,
             } => self.eval_if(cond, then, or),
-            _ => self.eval_expr(input),
+            Expr::Fn { block, typedef } => self.eval_fn(block, typedef),
+            Expr::Var { name, typedef: _ } => Ok(self.get(name)),
+            Expr::Literal(value) => Ok(value.clone()),
+            Expr::Unary {
+                op,
+                expr,
+                typedef: _,
+            } => self.eval_unary(op, expr),
+            Expr::Binary {
+                op,
+                left,
+                right,
+                typedef: _,
+            } => self.eval_binary(op, left, right),
+            Expr::Call {
+                name,
+                args,
+                typedef,
+            } => self.eval_call(name, args),
+            _ => error("invalid expression"),
         }
     }
 
-    fn eval_block(&mut self, stmts: &Vec<Box<Expr>>) -> EvalResult {
+    fn eval_block(&mut self, stmts: &Vec<Expr>) -> EvalResult {
         let mut _ctx = self.derive();
         let mut result = Value::Void;
         for stmt in stmts {
@@ -76,7 +101,7 @@ impl Context<'_> {
         then: &Box<Expr>,
         or: &Option<Box<Expr>>,
     ) -> EvalResult {
-        let check = self.eval_expr(cond)?.is_truthy();
+        let check = self.eval(cond)?.is_truthy();
         if check {
             self.eval(then)
         } else {
@@ -87,28 +112,43 @@ impl Context<'_> {
         }
     }
 
-    // expressions
-    fn eval_expr(&self, input: &Box<Expr>) -> EvalResult {
-        match input.as_ref() {
-            Expr::Var { name, typedef: _ } => Ok(self.get(name)),
-            Expr::Literal(value) => Ok(value.clone()),
-            Expr::Unary {
-                op,
-                expr,
-                typedef: _,
-            } => self.eval_unary(op, expr),
-            Expr::Binary {
-                op,
-                left,
-                right,
-                typedef: _,
-            } => self.eval_binary(op, left, right),
-            _ => error("invalid expression"),
-        }
+    fn eval_fn(&mut self, expr: &Box<Expr>, typedef: &Type) -> EvalResult {
+        Ok(Value::Fn {
+            typedef: typedef.clone(),
+            expr: expr.clone(),
+        })
     }
 
-    fn eval_unary(&self, op: &Token, expr: &Box<Expr>) -> EvalResult {
-        let value = self.eval_expr(expr)?;
+    fn eval_call(&mut self, name: &String, args: &Vec<Expr>) -> EvalResult {
+        let (typedef, fn_expr) = match self.get(name) {
+            Value::Fn { typedef, expr } => (typedef, expr),
+            _ => return error(format!("{name} is not a function").as_str()),
+        };
+        let args_def = match typedef {
+            Type::Fn { args, returns: _ } => args,
+            _ => return error(format!("{name} has invalid type").as_str()),
+        };
+
+        // create context and eval args
+        let mut ctx = Context::new();
+        for (i, (name, arg_type)) in args_def.iter().enumerate() {
+            let arg = match args.get(i) {
+                Some(e) => self.eval(e)?,
+                None => arg_type.get_default(),
+            };
+
+            match ctx.set(name, arg) {
+                Ok(_) => (),
+                Err(err) => return error(err),
+            }
+        }
+
+        ctx.eval(fn_expr.as_ref())
+    }
+
+    // expressions
+    fn eval_unary(&mut self, op: &Token, expr: &Box<Expr>) -> EvalResult {
+        let value = self.eval(expr)?;
 
         if *op == Token::Bang {
             Ok(Value::Bool(!value.is_truthy()))
@@ -122,13 +162,9 @@ impl Context<'_> {
         }
     }
 
-    fn eval_binary(&self, op: &Token, left: &Box<Expr>, right: &Box<Expr>) -> EvalResult {
-        let left_value = self.eval_expr(left)?;
-        let right_value = self.eval_expr(right)?;
-
-        fn _bool(val: bool) -> EvalResult {
-            Ok(Value::Bool(val))
-        }
+    fn eval_binary(&mut self, op: &Token, left: &Box<Expr>, right: &Box<Expr>) -> EvalResult {
+        let left_value = self.eval(left)?;
+        let right_value = self.eval(right)?;
 
         match *op {
             Token::Plus => match left_value {
@@ -138,12 +174,12 @@ impl Context<'_> {
             Token::Minus => math(op, &left_value, &right_value),
             Token::Star => math(op, &left_value, &right_value),
             Token::Slash => math(op, &left_value, &right_value),
-            Token::BangEqual => _bool(left_value != right_value),
-            Token::EqualEqual => _bool(left_value == right_value),
-            Token::Greater => _bool(left_value > right_value),
-            Token::GreaterEqual => _bool(left_value >= right_value),
-            Token::Less => _bool(left_value < right_value),
-            Token::LessEqual => _bool(left_value <= right_value),
+            Token::BangEqual => Ok(Value::Bool(left_value != right_value)),
+            Token::EqualEqual => Ok(Value::Bool(left_value == right_value)),
+            Token::Greater => Ok(Value::Bool(left_value > right_value)),
+            Token::GreaterEqual => Ok(Value::Bool(left_value >= right_value)),
+            Token::Less => Ok(Value::Bool(left_value < right_value)),
+            Token::LessEqual => Ok(Value::Bool(left_value <= right_value)),
             _ => error("invalid operator"),
         }
     }

@@ -56,10 +56,7 @@ fn main() {
 "
         .blue()
     );
-    let mut ctx = Context {
-        enclosing: None,
-        state: HashMap::new(),
-    };
+    let mut ctx = Context::new();
     let mut stdout = io::stdout();
     let stdin = io::stdin();
     loop {
@@ -67,20 +64,13 @@ fn main() {
         let _ = stdout.flush();
         // read
         let mut buffer = String::new();
-        while !buffer.trim_end().ends_with(";;") {
-            let _ = stdin.read_line(&mut buffer);
-            print!("| ");
-            let _ = stdout.flush();
-        }
-        buffer = buffer[0..buffer.len() - 3].to_string();
-
-        let lines: Vec<&str> = buffer.split('\n').collect();
+        let _ = stdin.read_line(&mut buffer);
 
         print!("{}{}", "run: ".blue(), buffer);
         let tokens = match lexer::scan(&buffer) {
             Ok(e) => e,
             Err(err) => {
-                print_err(&lines, &err);
+                print_err(&buffer, &err);
                 continue;
             }
         };
@@ -88,7 +78,7 @@ fn main() {
         let node = match parser::parse(&tokens) {
             Ok(e) => e,
             Err(err) => {
-                print_err(&lines, &err);
+                print_err(&buffer, &err);
                 continue;
             }
         };
@@ -96,7 +86,7 @@ fn main() {
         let expr = match analyser::analyse(&node) {
             Ok(e) => e,
             Err(err) => {
-                print_err(&lines, &err);
+                print_err(&buffer, &err);
                 continue;
             }
         };
@@ -126,17 +116,10 @@ fn times(x: usize, v: char) -> String {
     (0..x).map(|_| v).collect()
 }
 
-fn print_err(lines: &Vec<&str>, err: &SyntaxErr) {
-    let line = match lines.get(err.source.line) {
-        Some(x) => x,
-        None => "",
-    };
-    let nr = err.source.line.to_string();
-
+fn print_err(buffer: &str, err: &SyntaxErr) {
+    let line = &buffer[err.source.start..err.source.end];
     println!("{}{}", "error: ".red().bold(), err.message.red());
-
-    println!(" {}{}{line}", nr.bold().blue(), " | ".bold().blue());
-    let space = times(err.source.start + 4 + nr.len(), ' ');
-    let line = times(err.source.len, '^');
-    println!("{space}{}", line.red());
+    println!("{}{line}", " | ".bold().blue());
+    let line = times(err.source.len(), '^');
+    println!("{}", line.red());
 }

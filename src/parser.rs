@@ -1,10 +1,18 @@
-use crate::types::{Node, SyntaxErr, Token, TokenData};
+use crate::types::{Node, Span, Spanned, SyntaxErr, Token, Type, Value};
 
-type ParserResult = Result<Box<Node>, SyntaxErr>;
+type ParserResult = Result<Node, SyntaxErr>;
+type TypeResult = Result<Spanned<Type>, SyntaxErr>;
 
 struct ParserCtx<'a> {
-    tokens: &'a Vec<TokenData>,
+    tokens: &'a Vec<Spanned<Token>>,
     current: usize,
+}
+
+fn error(msg: &'static str, span: &Span) -> ParserResult {
+    Err(SyntaxErr {
+        message: msg.to_owned(),
+        source: span.clone(),
+    })
 }
 
 impl ParserCtx<'_> {
@@ -15,12 +23,19 @@ impl ParserCtx<'_> {
         if self.is_end() {
             return false;
         }
-        self.tokens[self.current].token == t
+        self.tokens[self.current].0 == t
     }
-    fn advance(&mut self) -> TokenData {
-        let value = &self.tokens[self.current];
+    fn peek(&self, t: Token) -> bool {
+        if self.current + 1 >= self.tokens.len() {
+            false
+        } else {
+            self.tokens[self.current + 1].0 == t
+        }
+    }
+    fn advance(&mut self) -> Spanned<Token> {
+        let value = self.tokens[self.current].clone();
         self.current += 1;
-        value.clone()
+        value
     }
     fn is(&mut self, tokens: &[Token]) -> bool {
         for t in tokens {
@@ -31,91 +46,117 @@ impl ParserCtx<'_> {
         }
         return false;
     }
-    fn previous(&self) -> TokenData {
+    fn previous(&self) -> Spanned<Token> {
         self.tokens[self.current - 1].clone()
     }
-    fn current(&self) -> TokenData {
+    fn current(&self) -> Spanned<Token> {
         self.tokens[self.current].clone()
     }
-    fn error(&self, msg: &'static str, token: &TokenData) -> ParserResult {
-        Err(SyntaxErr {
-            message: msg.to_owned(),
-            source: token.source,
-        })
+    fn end(&self) -> usize {
+        self.previous().1.end
     }
 
     // statement
     fn statement(&mut self) -> ParserResult {
-        self.block()
-    }
-
-    fn block(&mut self) -> ParserResult {
-        if !self.is(&[Token::LeftBrace]) {
-            return Ok(self.variable()?);
-        }
-
-        let mut stmts = Vec::new();
-        while !self.check(Token::RightBrace) && !self.is_end() {
-            stmts.push(self.statement()?)
-        }
-        if self.is(&[Token::RightBrace]) {
-            Ok(Box::new(Node::Block(stmts)))
-        } else {
-            self.error("Expect '}' at end of block", &self.current())
-        }
+        self.variable()
     }
 
     fn variable(&mut self) -> ParserResult {
         if !self.is(&[Token::Let]) {
             return Ok(self.condition()?);
         }
+        let start = self.previous().1.start;
 
-        let name = self.advance();
-        match name.token {
-            Token::Identifier(_) => (),
-            _ => return self.error("Identifier expected", &self.previous()),
+        let name_token = self.advance();
+        let name = match name_token.0 {
+            Token::Identifier(name) => (name, name_token.1),
+            _ => return error("Identifier expected", &self.previous().1),
         };
-        if self.is(&[Token::DotDot]) {
+
+        let mut typedef = None;
+        let mut init = None;
+        // type def
+        if self.check(Token::DotDot) {
             // parse type def
+            typedef = Some(self.typedef()?);
         }
-        let expr = match self.is(&[Token::Equal]) {
-            true => self.expression()?,
-            _ => return self.error("Initializer expected", &self.current()),
-        };
-
-        if self.is(&[Token::Semicolon, Token::NewLine]) {
-            Ok(Box::new(Node::Let { name, node: expr }))
-        } else {
-            self.error("Expect ';' or new line after statement", &self.current())
+        // init expression
+        else if self.is(&[Token::Equal]) {
+            init = Some(Box::new(self.expression()?));
         }
+        // error
+        else {
+            return error("Initializer or typedef expected", &self.current().1);
+        }
+        // check end
+        if !self.is(&[Token::Semicolon, Token::NewLine]) {
+            return error("Expect ';' or new line after statement", &self.current().1);
+        }
+        Ok(Node::Let {
+            name,
+            init,
+            typedef,
+            span: start..self.end(),
+        })
     }
 
     fn condition(&mut self) -> ParserResult {
         if !self.is(&[Token::If]) {
-            return Ok(self.expression()?);
+            return Ok(self.function()?);
         }
-        let _if = self.previous();
+        let start = self.previous().1.start;
 
         let cond = self.expression()?;
         if !self.check(Token::LeftBrace) {
-            return self.error("Expected block statement", &self.current());
+            return error("Expected block statement", &self.current().1);
         }
         let then = self.block()?;
-        if !self.is(&[Token::Else]) {
-            return Ok(Box::new(Node::If {
-                _if,
-                cond,
-                then,
-                or: None,
-            }));
-        }
-        let or = Some(self.statement()?);
-        return Ok(Box::new(Node::If {
-            _if,
-            cond,
-            then,
+        let or = match self.is(&[Token::Else]) {
+            true => Some(Box::new(self.statement()?)),
+            false => None,
+        };
+
+        return Ok(Node::If {
+            cond: Box::new(cond),
+            then: Box::new(then),
             or,
-        }));
+            span: start..self.end(),
+        });
+    }
+
+    fn function(&mut self) -> ParserResult {
+        let start = self.current().1.start;
+        if !self.check(Token::Fn) {
+            return Ok(self.block()?);
+        }
+        let typedef = self.fn_type()?;
+        let block = self.block()?;
+
+        Ok(Node::Fn {
+            typedef,
+            block: Box::new(block),
+            span: start..self.end(),
+        })
+    }
+
+    fn block(&mut self) -> ParserResult {
+        if !self.is(&[Token::LeftBrace]) {
+            return Ok(self.expression()?);
+        }
+        let start = self.previous().1.start;
+
+        let mut nodes = Vec::new();
+        while !self.check(Token::RightBrace) && !self.is_end() {
+            nodes.push(self.statement()?)
+        }
+        if self.is(&[Token::RightBrace]) {
+            Ok(Node::Block {
+                nodes,
+                span: start..self.end(),
+            })
+        } else {
+            error("Expect '}' at end of block", &self.current().1)
+        }
     }
 
     // expressions
@@ -124,21 +165,24 @@ impl ParserCtx<'_> {
     }
     // comparison (!= | ==) comparison
     fn equality(&mut self) -> ParserResult {
+        let start = self.current().1.start;
         let mut expr = self.comparison()?;
 
         while self.is(&[Token::BangEqual, Token::EqualEqual]) {
             let op = self.previous();
             let right = self.comparison()?;
-            expr = Box::new(Node::Binary {
+            expr = Node::Binary {
                 op,
-                left: expr,
-                right,
-            });
+                left: Box::new(expr),
+                right: Box::new(right),
+                span: start..self.end(),
+            };
         }
         Ok(expr)
     }
     // term (< | <= | > | >=) term
     fn comparison(&mut self) -> ParserResult {
+        let start = self.current().1.start;
         let mut expr = self.term()?;
 
         while self.is(&[
@@ -149,84 +193,211 @@ impl ParserCtx<'_> {
         ]) {
             let op = self.previous();
             let right = self.term()?;
-            expr = Box::new(Node::Binary {
+            expr = Node::Binary {
                 op,
-                left: expr,
-                right,
-            });
+                left: Box::new(expr),
+                right: Box::new(right),
+                span: start..self.end(),
+            };
         }
         Ok(expr)
     }
     // factory (+ | -) factory
     fn term(&mut self) -> ParserResult {
+        let start = self.current().1.start;
         let mut expr = self.factory()?;
 
         while self.is(&[Token::Plus, Token::Minus]) {
             let op = self.previous();
             let right = self.factory()?;
-            expr = Box::new(Node::Binary {
+            expr = Node::Binary {
                 op,
-                left: expr,
-                right,
-            });
+                left: Box::new(expr),
+                right: Box::new(right),
+                span: start..self.end(),
+            };
         }
         Ok(expr)
     }
     // unary (* | /) unary
     fn factory(&mut self) -> ParserResult {
+        let start = self.current().1.start;
         let mut expr = self.unary()?;
 
         while self.is(&[Token::Star, Token::Slash]) {
             let op = self.previous();
             let right = self.unary()?;
-            expr = Box::new(Node::Binary {
+            expr = Node::Binary {
                 op,
-                left: expr,
-                right,
-            });
+                left: Box::new(expr),
+                right: Box::new(right),
+                span: start..self.end(),
+            };
         }
         Ok(expr)
     }
     // (! | -) unary | primary
     fn unary(&mut self) -> ParserResult {
+        let start = self.current().1.start;
         if self.is(&[Token::Bang, Token::Minus]) {
             let op = self.previous();
             let expr = self.unary()?;
-            return Ok(Box::new(Node::Unary { op, node: expr }));
+            return Ok(Node::Unary {
+                op,
+                node: Box::new(expr),
+                span: start..self.end(),
+            });
         }
         self.primary()
     }
     // int, float, string, bool, expression
     fn primary(&mut self) -> ParserResult {
         let current = self.advance();
-        match current.token {
-            Token::Bool(_) => Ok(Box::new(Node::Literal(current))),
-            Token::Number(_) => Ok(Box::new(Node::Literal(current))),
-            Token::String(_) => Ok(Box::new(Node::Literal(current))),
-            Token::Identifier(_) => Ok(Box::new(Node::Literal(current))),
+        match current.0 {
+            Token::Bool(val) => Ok(Node::Literal((Value::Bool(val), current.1))),
+            Token::Number(val) => Ok(Node::Literal((Value::Number(val), current.1))),
+            Token::String(val) => Ok(Node::Literal((Value::String(val), current.1))),
+            Token::Identifier(val) => match self.peek(Token::LeftParen) {
+                true => self.call((val, current.1)),
+                false => Ok(Node::Identifier((val, current.1))),
+            },
             Token::LeftParen => {
                 // group
                 let expr = self.expression()?;
                 if !self.is(&[Token::RightParen]) {
-                    self.error("Expect ')' after expression.", &self.current())
+                    error("Expect ')' after expression.", &self.current().1)
                 } else {
                     Ok(expr)
                 }
             }
-            _ => self.error("invalid token", &current),
+            _ => error("invalid token", &current.1),
         }
+    }
+
+    fn call(&mut self, name: Spanned<String>) -> ParserResult {
+        let start = self.current().1.start;
+        if !self.is(&[Token::LeftParen]) {
+            return error("Expect '(' after identifer", &name.1);
+        }
+        let mut args = Vec::new();
+        // fn args
+        while !self.check(Token::RightParen) && !self.is_end() {
+            // get expr
+            let expr = self.statement()?;
+            args.push(expr);
+            // break when no comma
+            if !self.is(&[Token::Comma]) {
+                break;
+            }
+        }
+        if !self.is(&[Token::RightBrace]) {
+            return error("Expect ')' at end of args", &self.current().1);
+        }
+        Ok(Node::Call {
+            name,
+            args,
+            span: start..self.end(),
+        })
+    }
+
+    // types
+    fn typedef(&mut self) -> TypeResult {
+        if !self.is(&[Token::DotDot, Token::Arrow]) {
+            return Err(SyntaxErr {
+                message: "type definition expected".to_owned(),
+                source: self.current().1,
+            });
+        }
+
+        self.fn_type()
+    }
+
+    fn fn_type(&mut self) -> TypeResult {
+        if !self.is(&[Token::Fn]) {
+            return self.value_type();
+        }
+        let start = self.previous().1.start;
+        // parse identifier
+        match self.current().0 {
+            Token::Identifier(name) => {
+                self.current += 1;
+            }
+            _ => (),
+        };
+        // parse args
+        let mut args = Vec::new();
+        if self.is(&[Token::LeftParen]) {
+            // fn args
+            while !self.check(Token::RightParen) && !self.is_end() {
+                // get name
+                let current = self.advance();
+                let name = match current.0 {
+                    Token::Identifier(name) => name,
+                    _ => {
+                        return Err(SyntaxErr {
+                            message: "identifier exprected".to_owned(),
+                            source: current.1,
+                        })
+                    }
+                };
+                // get type
+                let typedef = self.typedef()?;
+                args.push((name, typedef.0));
+                // break when no comma
+                if !self.is(&[Token::Comma]) {
+                    break;
+                }
+            }
+            if !self.is(&[Token::RightBrace]) {
+                return Err(SyntaxErr {
+                    message: "Expect ')' at end of args".to_owned(),
+                    source: self.current().1,
+                });
+            }
+        }
+        // fn return type
+        let returns = self.typedef()?;
+        Ok((
+            Type::Fn {
+                args,
+                returns: Box::new(returns.0),
+            },
+            start..self.end(),
+        ))
+    }
+
+    fn value_type(&mut self) -> TypeResult {
+        let current = self.advance();
+        return match current.0 {
+            Token::Identifier(name) => match name.as_str() {
+                "number" => Ok((Type::Number, current.1)),
+                "string" => Ok((Type::String, current.1)),
+                "boolean" => Ok((Type::Bool, current.1)),
+                _ => Err(SyntaxErr {
+                    message: "type identifier exprected".to_owned(),
+                    source: current.1,
+                }),
+            },
+            _ => Err(SyntaxErr {
+                message: "type identifier exprected".to_owned(),
+                source: current.1,
+            }),
+        };
     }
 }
 
-pub fn parse(tokens: &Vec<TokenData>) -> ParserResult {
+pub fn parse(tokens: &Vec<Spanned<Token>>) -> ParserResult {
     let mut ctx = ParserCtx { tokens, current: 0 };
 
-    let mut stmts = Vec::new();
+    let mut nodes = Vec::new();
     while !ctx.is_end() {
         if ctx.is(&[Token::NewLine]) {
             continue;
         }
-        stmts.push(ctx.statement()?)
+        nodes.push(ctx.statement()?)
     }
-    Ok(Box::new(Node::Block(stmts)))
+    Ok(Node::Block {
+        nodes,
+        span: 0..tokens.last().unwrap().1.end,
+    })
 }

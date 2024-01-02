@@ -1,11 +1,10 @@
-use crate::types::{SourceMap, SyntaxErr, Token, TokenData};
+use crate::types::{Spanned, SyntaxErr, Token};
 
 struct LexerCtx {
     source: Vec<char>,
     start: usize,
     current: usize,
-    line: usize,
-    tokens: Vec<TokenData>,
+    tokens: Vec<Spanned<Token>>,
 }
 
 impl LexerCtx {
@@ -33,14 +32,7 @@ impl LexerCtx {
         return val;
     }
     fn add(&mut self, t: Token) {
-        self.tokens.push(TokenData {
-            token: t,
-            source: SourceMap {
-                start: self.start,
-                len: self.current - self.start,
-                line: self.line,
-            },
-        });
+        self.tokens.push((t, self.start..self.current));
     }
     fn get_current(&self) -> String {
         self.get_string(self.start, self.current)
@@ -58,23 +50,13 @@ impl LexerCtx {
     }
     fn string(&mut self) -> Result<(), SyntaxErr> {
         while self.peek() != '"' && !self.is_end() {
-            if self.peek() == '\n' {
-                self.line += 1;
-            }
             self.current += 1;
         }
 
         if self.is_end() {
             return Err(SyntaxErr {
                 message: "unterminated string".to_owned(),
-                source: SourceMap {
-                    line: match self.previous() == '\n' {
-                        true => self.line - 1,
-                        false => self.line,
-                    },
-                    start: self.start,
-                    len: self.current - 1 - self.start,
-                },
+                source: self.start..self.current - 1,
             });
         }
 
@@ -102,11 +84,7 @@ impl LexerCtx {
             }
             Err(_) => Err(SyntaxErr {
                 message: "invalid float".to_owned(),
-                source: SourceMap {
-                    line: self.line,
-                    start: self.start,
-                    len: self.current - self.start,
-                },
+                source: (self.start..self.current),
             }),
         }
     }
@@ -137,7 +115,13 @@ impl LexerCtx {
             ']' => self.add(Token::RightBracket),
             ',' => self.add(Token::Comma),
             '.' => self.add(Token::Dot),
-            '-' => self.add(Token::Minus),
+            '-' => match self.peek() == '>' {
+                true => {
+                    self.add(Token::Arrow);
+                    self.current += 1;
+                }
+                false => self.add(Token::Minus),
+            },
             '+' => self.add(Token::Plus),
             '*' => self.add(Token::Star),
             '/' => self.add(Token::Slash),
@@ -155,10 +139,7 @@ impl LexerCtx {
             '\t' => (),
             '\r' => (),
             // new line
-            '\n' => {
-                self.add(Token::NewLine);
-                self.line += 1;
-            }
+            '\n' => self.add(Token::NewLine),
             // default
             c => {
                 // number
@@ -170,11 +151,7 @@ impl LexerCtx {
                     // error
                     return Err(SyntaxErr {
                         message: format!("invalid token '{c}'"),
-                        source: SourceMap {
-                            line: self.line,
-                            start: self.current,
-                            len: 1,
-                        },
+                        source: self.current..self.current + 1,
                     });
                 }
             }
@@ -183,11 +160,10 @@ impl LexerCtx {
     }
 }
 
-pub fn scan(input: &str) -> Result<Vec<TokenData>, SyntaxErr> {
+pub fn scan(input: &str) -> Result<Vec<Spanned<Token>>, SyntaxErr> {
     let mut ctx = LexerCtx {
         start: 0,
         current: 0,
-        line: 0,
         tokens: Vec::new(),
         source: input.chars().collect(),
     };

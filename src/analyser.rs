@@ -1,34 +1,38 @@
 use std::collections::HashMap;
 
-use crate::types::{Expr, Node, SyntaxErr, Token, TokenData, Type, Value};
+use crate::types::{Expr, Node, Span, Spanned, SyntaxErr, Token, Type};
 
-type AnalyserResult = Result<Box<Expr>, SyntaxErr>;
+type AnalyserResult = Result<Expr, SyntaxErr>;
 
 struct AnalyserCtx<'a> {
     pub enclosing: Option<&'a AnalyserCtx<'a>>,
     pub state: HashMap<String, Type>,
 }
 
-fn error(msg: &'static str, token: &TokenData) -> AnalyserResult {
+fn error(msg: &str, span: &Span) -> AnalyserResult {
     Err(SyntaxErr {
         message: msg.to_owned(),
-        source: token.source,
+        source: span.clone(),
     })
-}
-fn ok(expr: Expr) -> AnalyserResult {
-    Ok(Box::new(expr))
 }
 
 impl AnalyserCtx<'_> {
+    fn new<'a>() -> AnalyserCtx<'a> {
+        AnalyserCtx {
+            enclosing: None,
+            state: HashMap::new(),
+        }
+    }
+
     fn derive(&self) -> AnalyserCtx {
         AnalyserCtx {
             enclosing: Some(self),
             state: HashMap::new(),
         }
     }
-    fn get(&self, key: &str) -> Option<Type> {
+    fn get(&self, key: &str) -> Option<&Type> {
         if self.state.contains_key(key) {
-            return Some(*self.state.get(key).unwrap());
+            return Some(self.state.get(key).unwrap());
         }
         if self.enclosing.is_some() {
             return self.enclosing.unwrap().get(key);
@@ -45,146 +49,222 @@ impl AnalyserCtx<'_> {
     }
 
     // statements
-    fn visit(&mut self, node: &Box<Node>) -> AnalyserResult {
-        match node.as_ref() {
-            Node::Block(nodes) => self.visit_block(nodes),
-            Node::Let { name, node } => self.visit_let(name, node),
+    fn visit(&mut self, node: &Node) -> AnalyserResult {
+        match node {
+            Node::Block { nodes, span: _ } => self.visit_block(nodes),
+            Node::Let {
+                name,
+                init,
+                typedef,
+                span: _,
+            } => self.visit_let(name, init, typedef),
             Node::If {
                 cond,
                 then,
                 or,
-                _if,
-            } => self.visit_if(_if, cond, then, or),
+                span: _,
+            } => self.visit_if(cond, then, or),
+            Node::Fn {
+                typedef,
+                block,
+                span,
+            } => self.visit_fn(typedef, block),
             _ => Ok(self.visit_expr(node)?),
         }
     }
 
-    fn visit_block(&mut self, nodes: &Vec<Box<Node>>) -> AnalyserResult {
+    fn visit_block(&mut self, nodes: &Vec<Node>) -> AnalyserResult {
         let mut ctx = self.derive();
         let mut stmts = Vec::new();
         for node in nodes {
             stmts.push(ctx.visit(node)?);
         }
-        Ok(Box::new(Expr::Block { stmts }))
+        Ok(Expr::Block { stmts })
     }
 
-    fn visit_let(&mut self, name: &TokenData, node: &Box<Node>) -> AnalyserResult {
-        let key = match &name.token {
-            Token::Identifier(x) => x.to_owned(),
-            _ => return error("Identifier expected.", name),
+    fn visit_let(
+        &mut self,
+        name: &Spanned<String>,
+        init: &Option<Box<Node>>,
+        typed: &Option<Spanned<Type>>,
+    ) -> AnalyserResult {
+        let (expr, typedef) = match init {
+            Some(node) => {
+                let e = self.visit(node)?;
+
+                let typedef = match typed {
+                    Some(typedef) => {
+                        if typedef.0 != e.get_return() {
+                            return error("type and expression dont match", node.get_span());
+                        }
+                        typedef.0.clone()
+                    }
+                    None => e.get_return(),
+                };
+
+                (e, typedef)
+            }
+            None => match typed {
+                Some(typedef) => (Expr::Literal(typedef.0.get_default()), typedef.0.clone()),
+                None => return error("typedef or initializer expected", &name.1),
+            },
         };
-        let expr = self.visit_expr(node)?;
-        match self.set(&key, expr.get_type()) {
-            Ok(_) => Ok(Box::new(Expr::Let { name: key, expr })),
-            Err(err) => error(err, name),
+
+        match self.set(&name.0, typedef) {
+            Ok(_) => Ok(Expr::Let {
+                name: name.0.to_owned(),
+                expr: Box::new(expr),
+            }),
+            Err(err) => error(err, &name.1),
         }
     }
 
     fn visit_if(
         &mut self,
-        token: &TokenData,
         cond: &Box<Node>,
         then: &Box<Node>,
         or: &Option<Box<Node>>,
     ) -> AnalyserResult {
         let cond_expr = self.visit_expr(cond)?;
         let then_expr = self.visit(then)?;
-        let typedef = then_expr.get_type();
+        let typedef = then_expr.get_return();
 
         match or {
             Some(node) => {
                 let expr = self.visit(node)?;
-                if expr.get_type() != typedef {
-                    error("if and else arms need to return the same value", token)
+                if expr.get_return() != typedef {
+                    error(
+                        "if and else arms need to return the same value",
+                        node.get_span(),
+                    )
                 } else {
-                    Ok(Box::new(Expr::If {
-                        cond: cond_expr,
-                        then: then_expr,
-                        or: Some(expr),
+                    Ok(Expr::If {
+                        cond: Box::new(cond_expr),
+                        then: Box::new(then_expr),
+                        or: Some(Box::new(expr)),
                         typedef,
-                    }))
+                    })
                 }
             }
-            None => Ok(Box::new(Expr::If {
-                cond: cond_expr,
-                then: then_expr,
+            None => Ok(Expr::If {
+                cond: Box::new(cond_expr),
+                then: Box::new(then_expr),
                 or: None,
                 typedef,
-            })),
-        }
-    }
-
-    // expression
-    fn visit_expr(&self, node: &Box<Node>) -> AnalyserResult {
-        match node.as_ref() {
-            Node::Literal(token) => self.visit_literal(token),
-            Node::Unary { op, node } => self.visit_unary(op, node),
-            Node::Binary { op, left, right } => self.visit_binary(op, left, right),
-            _ => panic!("invalid expression"),
-        }
-    }
-
-    fn visit_unary(&self, op: &TokenData, node: &Box<Node>) -> AnalyserResult {
-        let expr = self.visit_expr(node)?;
-
-        match op.token {
-            Token::Bang => Ok(Box::new(Expr::Unary {
-                op: op.token.to_owned(),
-                expr,
-                typedef: Type::Bool,
-            })),
-            Token::Minus => match expr.get_type() {
-                Type::Number => Ok(Box::new(Expr::Unary {
-                    op: op.token.to_owned(),
-                    expr,
-                    typedef: Type::Number,
-                })),
-                _ => Err(SyntaxErr {
-                    message: "minus can only be applyed to numbers".to_owned(),
-                    source: op.source,
-                }),
-            },
-            _ => Err(SyntaxErr {
-                message: "invalid operator".to_owned(),
-                source: op.source,
             }),
         }
     }
 
-    fn visit_binary(&self, op: &TokenData, left: &Box<Node>, right: &Box<Node>) -> AnalyserResult {
+    fn visit_fn(&mut self, typedef: &Spanned<Type>, block: &Box<Node>) -> AnalyserResult {
+        let (args, returns) = match &typedef.0 {
+            Type::Fn { args, returns } => (args, returns),
+            _ => return error("invalid function type", &typedef.1),
+        };
+
+        // create function scope
+        let mut ctx = AnalyserCtx::new();
+        for arg in args {
+            ctx.set(&arg.0, arg.1.clone());
+        }
+        // validate expression
+        let expr = ctx.visit(&block)?;
+        if &expr.get_return() != returns.as_ref() {
+            return error("function block has invalid return type", block.get_span());
+        }
+
+        Ok(Expr::Fn {
+            block: Box::new(expr),
+            typedef: typedef.0.clone(),
+        })
+    }
+
+    // expression
+    fn visit_expr(&mut self, node: &Node) -> AnalyserResult {
+        match node {
+            Node::Literal(val) => Ok(Expr::Literal(val.0.clone())),
+            Node::Identifier(name) => self.visit_identifier(name),
+            Node::Call {
+                name,
+                args,
+                span: _,
+            } => self.visit_call(name, args),
+            Node::Unary { op, node, span: _ } => self.visit_unary(op, node),
+            Node::Binary {
+                op,
+                left,
+                right,
+                span: _,
+            } => self.visit_binary(op, left, right),
+            _ => panic!("invalid expression"),
+        }
+    }
+
+    fn visit_unary(&mut self, op: &Spanned<Token>, node: &Box<Node>) -> AnalyserResult {
+        let expr = self.visit_expr(node)?;
+
+        match op.0 {
+            Token::Bang => Ok(Expr::Unary {
+                op: op.0.to_owned(),
+                expr: Box::new(expr),
+                typedef: Type::Bool,
+            }),
+            Token::Minus => match expr.get_return() {
+                Type::Number => Ok(Expr::Unary {
+                    op: op.0.to_owned(),
+                    expr: Box::new(expr),
+                    typedef: Type::Number,
+                }),
+                _ => Err(SyntaxErr {
+                    message: "minus can only be applyed to numbers".to_owned(),
+                    source: op.1.clone(),
+                }),
+            },
+            _ => Err(SyntaxErr {
+                message: "invalid operator".to_owned(),
+                source: op.1.clone(),
+            }),
+        }
+    }
+
+    fn visit_binary(
+        &mut self,
+        op: &Spanned<Token>,
+        left: &Box<Node>,
+        right: &Box<Node>,
+    ) -> AnalyserResult {
         let left_expr = self.visit_expr(left)?;
         let right_expr = self.visit_expr(right)?;
 
-        fn check_math(op: &TokenData, l: Box<Expr>, r: Box<Expr>) -> AnalyserResult {
-            if l.get_type() != Type::Number || r.get_type() != Type::Number {
-                error("operator can only be used for numbers", op)
+        fn check_math(op: &Spanned<Token>, l: Expr, r: Expr) -> AnalyserResult {
+            if l.get_return() != Type::Number || r.get_return() != Type::Number {
+                error("operator can only be used for numbers", &op.1)
             } else {
-                ok(Expr::Binary {
-                    op: op.token.to_owned(),
-                    left: l,
-                    right: r,
+                Ok(Expr::Binary {
+                    op: op.0.to_owned(),
+                    left: Box::new(l),
+                    right: Box::new(r),
                     typedef: Type::Number,
                 })
             }
         }
-        fn check_compare(op: &TokenData, l: Box<Expr>, r: Box<Expr>) -> AnalyserResult {
-            if l.get_type() != r.get_type() {
-                error("can only compare same types", op)
+        fn check_compare(op: &Spanned<Token>, l: Expr, r: Expr) -> AnalyserResult {
+            if l.get_return() != r.get_return() {
+                error("can only compare same types", &op.1)
             } else {
-                ok(Expr::Binary {
-                    op: op.token.to_owned(),
-                    left: l,
-                    right: r,
+                Ok(Expr::Binary {
+                    op: op.0.to_owned(),
+                    left: Box::new(l),
+                    right: Box::new(r),
                     typedef: Type::Bool,
                 })
             }
         }
-        match op.token {
-            Token::Plus => match left_expr.get_type() {
-                Type::String => ok(Expr::Binary {
-                    op: op.token.to_owned(),
-                    left: left_expr,
-                    right: right_expr,
+        match op.0 {
+            Token::Plus => match left_expr.get_return() {
+                Type::String => Ok(Expr::Binary {
+                    op: op.0.to_owned(),
+                    left: Box::new(left_expr),
+                    right: Box::new(right_expr),
                     typedef: Type::String,
                 }),
                 _ => check_math(op, left_expr, right_expr),
@@ -198,32 +278,52 @@ impl AnalyserCtx<'_> {
             Token::GreaterEqual => check_compare(op, left_expr, right_expr),
             Token::Less => check_compare(op, left_expr, right_expr),
             Token::LessEqual => check_compare(op, left_expr, right_expr),
-            _ => error("invalid operator", op),
+            _ => error("invalid operator", &op.1),
         }
     }
 
-    fn visit_literal(&self, token: &TokenData) -> AnalyserResult {
-        match &token.token {
-            Token::Identifier(name) => ok(Expr::Var {
-                name: name.to_owned(),
-                typedef: match self.get(&name) {
-                    Some(t) => t,
-                    None => return error("variable not defined", token),
-                },
-            }),
-            Token::String(val) => ok(Expr::Literal(Value::String(val.to_owned()))),
-            Token::Number(val) => ok(Expr::Literal(Value::Number(val.to_owned()))),
-            Token::Bool(val) => ok(Expr::Literal(Value::Bool(val.to_owned()))),
-            _ => error("invalid literal", token),
+    fn visit_identifier(&self, name: &Spanned<String>) -> AnalyserResult {
+        Ok(Expr::Var {
+            name: name.0.to_owned(),
+            typedef: match self.get(&name.0) {
+                Some(t) => t.clone(),
+                None => return error("variable not defined", &name.1),
+            },
+        })
+    }
+
+    fn visit_call(&mut self, name: &Spanned<String>, args: &Vec<Node>) -> AnalyserResult {
+        let (arg_types, return_type) = match self.get(&name.0) {
+            Some(t) => match t {
+                Type::Fn { args, returns } => (args.clone(), returns.as_ref().to_owned()),
+                _ => return error(format!("{} is not a function", &name.0).as_str(), &name.1),
+            },
+            None => return error("function not defined", &name.1),
+        };
+
+        let mut epxr_args = Vec::new();
+        for (i, arg_type) in arg_types.iter().enumerate() {
+            let arg = match args.get(i) {
+                Some(node) => node,
+                None => return error(format!("missing fn arg {}", &arg_type.0).as_str(), &name.1),
+            };
+            let arg_expr = self.visit(arg)?;
+            if arg_expr.get_return() != arg_type.1 {
+                return error("invalid arg type", arg.get_span());
+            }
+            epxr_args.push(arg_expr);
         }
+
+        Ok(Expr::Call {
+            name: name.0.to_owned(),
+            args: epxr_args,
+            typedef: return_type,
+        })
     }
 }
 
-pub fn analyse(node: &Box<Node>) -> AnalyserResult {
-    let mut ctx = AnalyserCtx {
-        enclosing: None,
-        state: HashMap::new(),
-    };
+pub fn analyse(node: &Node) -> AnalyserResult {
+    let mut ctx = AnalyserCtx::new();
 
     ctx.visit(node)
 }
