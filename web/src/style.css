@@ -1,0 +1,93 @@
+* {
+    margin: 0;
+}
+body {
+    background-color: #282c34;
+    min-height: 100vh;
+    padding: 2rem;
+}
+
+button {
+    all: unset;
+    font-family: monospace;
+    background-color: #abb2bf;
+    padding: 4px;
+    border-radius: 2px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+button:hover {
+    background-color: #437aa7;
+}
+
+section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+#logo {
+    font-family: monospace;
+    font-weight: 800;
+    color: #61afef;
+    display: flex;
+    justify-content: center;
+}
+
+#editor {
+    border: 1px dotted #abb2bf66;
+    border-radius: 2px;
+}
+
+#result::before {
+    content: "result:";
+    color: #61afef;
+}
+
+#error {
+    border-color: #e06c75;
+    color: #e06c75;
+}
+#error::before {
+    content: "error:";
+    color: #e06c75;
+}
+
+.box {
+    display: none;
+    position: relative;
+    font-family: monospace;
+    color: #abb2bf;
+    border: 1px dotted #abb2bf66;
+    border-radius: 2px;
+    padding: 8px;
+    margin-top: 8px;
+}
+.box::before {
+    position: absolute;
+    top: -8px;
+    left: 4px;
+    padding: 0px 4px;
+    background-color: #282c34;
+    font-size: 10px;
+}
+
+.number {
+    color: #e5c07b;
+}
+.string {
+    color: #98c379;
+}
+.boolean {
+    color: #c678dd;
+}
+.void {
+    color: #abb2bf;
+}
+.error {
+    color: #e06c75;
+}
+.type {
+    color: #abb2bf66;
+}
