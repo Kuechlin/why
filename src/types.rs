@@ -188,10 +188,7 @@ impl Value {
             Value::Number(_) => Type::Number,
             Value::String(_) => Type::String,
             Value::Bool(_) => Type::Bool,
-            Value::Fn { expr: _, typedef } => match typedef {
-                Type::Fn { args: _, returns } => returns.as_ref().clone(),
-                _ => Type::Void,
-            },
+            Value::Fn { expr: _, typedef } => typedef.clone(),
             Value::Void => Type::Void,
         }
     }
