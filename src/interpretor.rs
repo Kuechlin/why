@@ -10,19 +10,27 @@ fn error(msg: &str) -> EvalResult {
     })
 }
 
-pub struct Context<'a> {
-    pub enclosing: Option<&'a Context<'a>>,
+pub struct ExecCtx<'a> {
+    pub enclosing: Option<&'a ExecCtx<'a>>,
     pub state: HashMap<String, Value>,
 }
-impl Context<'_> {
-    pub fn new<'a>() -> Context<'a> {
-        Context {
+impl ExecCtx<'_> {
+    pub fn new<'a>() -> ExecCtx<'a> {
+        ExecCtx {
             enclosing: None,
             state: HashMap::new(),
         }
     }
-    fn derive(&mut self) -> Context {
-        Context {
+    pub fn execute(&mut self, stmts: &Vec<Expr>) -> EvalResult {
+        let mut result = Value::Void;
+        for stmt in stmts {
+            result = self.eval(stmt)?;
+        }
+        Ok(result)
+    }
+
+    fn derive(&mut self) -> ExecCtx {
+        ExecCtx {
             enclosing: Some(self),
             state: HashMap::new(),
         }
@@ -72,9 +80,8 @@ impl Context<'_> {
             Expr::Call {
                 name,
                 args,
-                typedef,
+                typedef: _,
             } => self.eval_call(name, args),
-            _ => error("invalid expression"),
         }
     }
 
@@ -130,7 +137,7 @@ impl Context<'_> {
         };
 
         // create context and eval args
-        let mut ctx = Context::new();
+        let mut ctx = ExecCtx::new();
         for (i, (name, arg_type)) in args_def.iter().enumerate() {
             let arg = match args.get(i) {
                 Some(e) => self.eval(e)?,

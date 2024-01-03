@@ -4,7 +4,7 @@ use crate::types::{Expr, Node, Span, Spanned, SyntaxErr, Token, Type};
 
 type AnalyserResult = Result<Expr, SyntaxErr>;
 
-struct AnalyserCtx<'a> {
+pub struct AnalyserCtx<'a> {
     pub enclosing: Option<&'a AnalyserCtx<'a>>,
     pub state: HashMap<String, Type>,
 }
@@ -17,11 +17,18 @@ fn error(msg: &str, span: &Span) -> AnalyserResult {
 }
 
 impl AnalyserCtx<'_> {
-    fn new<'a>() -> AnalyserCtx<'a> {
+    pub fn new<'a>() -> AnalyserCtx<'a> {
         AnalyserCtx {
             enclosing: None,
             state: HashMap::new(),
         }
+    }
+    pub fn analyse(&mut self, nodes: &[Node]) -> Result<Vec<Expr>, SyntaxErr> {
+        let mut stmts = Vec::new();
+        for node in nodes {
+            stmts.push(self.visit(node)?);
+        }
+        Ok(stmts)
     }
 
     fn derive(&self) -> AnalyserCtx {
@@ -67,7 +74,7 @@ impl AnalyserCtx<'_> {
             Node::Fn {
                 typedef,
                 block,
-                span,
+                span: _,
             } => self.visit_fn(typedef, block),
             _ => Ok(self.visit_expr(node)?),
         }
@@ -164,7 +171,10 @@ impl AnalyserCtx<'_> {
         // create function scope
         let mut ctx = AnalyserCtx::new();
         for arg in args {
-            ctx.set(&arg.0, arg.1.clone());
+            ctx.set(&arg.0, arg.1.clone()).or(Err(SyntaxErr {
+                message: "argument already exists".to_owned(),
+                source: typedef.1.clone(),
+            }))?;
         }
         // validate expression
         let expr = ctx.visit(&block)?;
@@ -320,10 +330,4 @@ impl AnalyserCtx<'_> {
             typedef: return_type,
         })
     }
-}
-
-pub fn analyse(node: &Node) -> AnalyserResult {
-    let mut ctx = AnalyserCtx::new();
-
-    ctx.visit(node)
 }

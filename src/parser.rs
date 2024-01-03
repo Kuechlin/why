@@ -25,13 +25,6 @@ impl ParserCtx<'_> {
         }
         self.tokens[self.current].0 == t
     }
-    fn peek(&self, t: Token) -> bool {
-        if self.current + 1 >= self.tokens.len() {
-            false
-        } else {
-            self.tokens[self.current + 1].0 == t
-        }
-    }
     fn advance(&mut self) -> Spanned<Token> {
         let value = self.tokens[self.current].clone();
         self.current += 1;
@@ -82,7 +75,7 @@ impl ParserCtx<'_> {
         }
         // init expression
         else if self.is(&[Token::Equal]) {
-            init = Some(Box::new(self.expression()?));
+            init = Some(Box::new(self.statement()?));
         }
         // error
         else {
@@ -257,7 +250,7 @@ impl ParserCtx<'_> {
             Token::Bool(val) => Ok(Node::Literal((Value::Bool(val), current.1))),
             Token::Number(val) => Ok(Node::Literal((Value::Number(val), current.1))),
             Token::String(val) => Ok(Node::Literal((Value::String(val), current.1))),
-            Token::Identifier(val) => match self.peek(Token::LeftParen) {
+            Token::Identifier(val) => match self.check(Token::LeftParen) {
                 true => self.call((val, current.1)),
                 false => Ok(Node::Identifier((val, current.1))),
             },
@@ -290,7 +283,7 @@ impl ParserCtx<'_> {
                 break;
             }
         }
-        if !self.is(&[Token::RightBrace]) {
+        if !self.is(&[Token::RightParen]) {
             return error("Expect ')' at end of args", &self.current().1);
         }
         Ok(Node::Call {
@@ -317,13 +310,6 @@ impl ParserCtx<'_> {
             return self.value_type();
         }
         let start = self.previous().1.start;
-        // parse identifier
-        match self.current().0 {
-            Token::Identifier(name) => {
-                self.current += 1;
-            }
-            _ => (),
-        };
         // parse args
         let mut args = Vec::new();
         if self.is(&[Token::LeftParen]) {
@@ -348,7 +334,7 @@ impl ParserCtx<'_> {
                     break;
                 }
             }
-            if !self.is(&[Token::RightBrace]) {
+            if !self.is(&[Token::RightParen]) {
                 return Err(SyntaxErr {
                     message: "Expect ')' at end of args".to_owned(),
                     source: self.current().1,
@@ -386,7 +372,7 @@ impl ParserCtx<'_> {
     }
 }
 
-pub fn parse(tokens: &Vec<Spanned<Token>>) -> ParserResult {
+pub fn parse(tokens: &Vec<Spanned<Token>>) -> Result<Vec<Node>, SyntaxErr> {
     let mut ctx = ParserCtx { tokens, current: 0 };
 
     let mut nodes = Vec::new();
@@ -396,8 +382,5 @@ pub fn parse(tokens: &Vec<Spanned<Token>>) -> ParserResult {
         }
         nodes.push(ctx.statement()?)
     }
-    Ok(Node::Block {
-        nodes,
-        span: 0..tokens.last().unwrap().1.end,
-    })
+    Ok(nodes)
 }

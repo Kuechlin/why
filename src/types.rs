@@ -297,10 +297,7 @@ impl Expr {
                 args: _,
                 typedef,
             } => typedef.clone(),
-            Expr::Fn { block, typedef } => match typedef {
-                Type::Fn { args, returns } => returns.as_ref().clone(),
-                _ => Type::Void,
-            },
+            Expr::Fn { block: _, typedef } => typedef.clone(),
         }
     }
 }

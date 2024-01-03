@@ -11,9 +11,6 @@ impl LexerCtx {
     fn is_end(&self) -> bool {
         self.current >= self.source.len()
     }
-    fn previous(&self) -> char {
-        self.source[self.current - 1]
-    }
     fn peek(&self) -> char {
         match self.is_end() {
             true => '\0',

@@ -24,15 +24,12 @@ loop {
 }
 */
 
-use std::{
-    collections::HashMap,
-    io::{self, Write},
-};
+use std::io::{self, Write};
 
 use colored::Colorize;
 use types::SyntaxErr;
 
-use crate::{interpretor::Context, types::Value};
+use crate::{analyser::AnalyserCtx, interpretor::ExecCtx, types::Value};
 
 mod analyser;
 mod interpretor;
@@ -56,7 +53,8 @@ fn main() {
 "
         .blue()
     );
-    let mut ctx = Context::new();
+    let mut analyser = AnalyserCtx::new();
+    let mut interpretor = ExecCtx::new();
     let mut stdout = io::stdout();
     let stdin = io::stdin();
     loop {
@@ -75,7 +73,7 @@ fn main() {
             }
         };
 
-        let node = match parser::parse(&tokens) {
+        let nodes = match parser::parse(&tokens) {
             Ok(e) => e,
             Err(err) => {
                 print_err(&buffer, &err);
@@ -83,7 +81,7 @@ fn main() {
             }
         };
 
-        let expr = match analyser::analyse(&node) {
+        let stmts = match analyser.analyse(&nodes) {
             Ok(e) => e,
             Err(err) => {
                 print_err(&buffer, &err);
@@ -91,7 +89,7 @@ fn main() {
             }
         };
 
-        let result = match ctx.eval(&expr) {
+        let result = match interpretor.execute(&stmts) {
             Ok(e) => e,
             Err(err) => {
                 println!("{}{}", "error: ".red().bold(), err.message.red());
@@ -117,9 +115,23 @@ fn times(x: usize, v: char) -> String {
 }
 
 fn print_err(buffer: &str, err: &SyntaxErr) {
-    let line = &buffer[err.source.start..err.source.end];
+    let mut value = "";
+    let mut count = 0;
+    let mut len = 0;
+    for line in buffer.split('\n') {
+        count += 1;
+        value = line;
+        if len + line.len() > err.source.start {
+            len = err.source.start - len;
+            break;
+        }
+        len += line.len();
+    }
+
     println!("{}{}", "error: ".red().bold(), err.message.red());
-    println!("{}{line}", " | ".bold().blue());
+    let num = count.to_string();
+    println!("{}{}{value}", num.bold().blue(), " | ".bold().blue());
+    let space = times(len + num.len() + 3, ' ');
     let line = times(err.source.len(), '^');
-    println!("{}", line.red());
+    println!("{space}{}", line.red());
 }
