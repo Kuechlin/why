@@ -4,5 +4,5 @@ run:
 wasm:
 	wasm-pack build --target web
 
-web:
+dev:
 	cd web && npm run dev

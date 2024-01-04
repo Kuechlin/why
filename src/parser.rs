@@ -82,8 +82,8 @@ impl ParserCtx<'_> {
             return error("Initializer or typedef expected", &self.current().1);
         }
         // check end
-        if !self.is(&[Token::Semicolon, Token::NewLine]) {
-            return error("Expect ';' or new line after statement", &self.current().1);
+        if !self.is(&[Token::Semicolon]) {
+            return error("Expect ';' after statement", &self.current().1);
         }
         Ok(Node::Let {
             name,
@@ -312,34 +312,32 @@ impl ParserCtx<'_> {
         let start = self.previous().1.start;
         // parse args
         let mut args = Vec::new();
-        if self.is(&[Token::LeftParen]) {
-            // fn args
-            while !self.check(Token::RightParen) && !self.is_end() {
-                // get name
-                let current = self.advance();
-                let name = match current.0 {
-                    Token::Identifier(name) => name,
-                    _ => {
-                        return Err(SyntaxErr {
-                            message: "identifier exprected".to_owned(),
-                            source: current.1,
-                        })
-                    }
-                };
-                // get type
-                let typedef = self.typedef()?;
-                args.push((name, typedef.0));
-                // break when no comma
-                if !self.is(&[Token::Comma]) {
-                    break;
+        // fn args
+        while !self.check(Token::Arrow) && !self.is_end() {
+            // get name
+            let current = self.advance();
+            let name = match current.0 {
+                Token::Identifier(name) => name,
+                _ => {
+                    return Err(SyntaxErr {
+                        message: "identifier exprected".to_owned(),
+                        source: current.1,
+                    })
                 }
+            };
+            // get type
+            let typedef = self.typedef()?;
+            args.push((name, typedef.0));
+            // break when no comma
+            if !self.is(&[Token::Comma]) {
+                break;
             }
-            if !self.is(&[Token::RightParen]) {
-                return Err(SyntaxErr {
-                    message: "Expect ')' at end of args".to_owned(),
-                    source: self.current().1,
-                });
-            }
+        }
+        if !self.check(Token::Arrow) {
+            return Err(SyntaxErr {
+                message: "Expect '->' at end of args to define return value".to_owned(),
+                source: self.current().1,
+            });
         }
         // fn return type
         let returns = self.typedef()?;
@@ -377,9 +375,6 @@ pub fn parse(tokens: &Vec<Spanned<Token>>) -> Result<Vec<Node>, SyntaxErr> {
 
     let mut nodes = Vec::new();
     while !ctx.is_end() {
-        if ctx.is(&[Token::NewLine]) {
-            continue;
-        }
         nodes.push(ctx.statement()?)
     }
     Ok(nodes)

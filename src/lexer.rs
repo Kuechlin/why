@@ -135,8 +135,7 @@ impl LexerCtx {
             ' ' => (),
             '\t' => (),
             '\r' => (),
-            // new line
-            '\n' => self.add(Token::NewLine),
+            '\n' => (),
             // default
             c => {
                 // number

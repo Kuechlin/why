@@ -1,21 +1,26 @@
 {
-  "name": "web",
-  "private": true,
-  "version": "0.0.0",
-  "type": "module",
-  "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
-    "preview": "vite preview"
-  },
-  "devDependencies": {
-    "@types/node": "^20.10.6",
-    "typescript": "^5.2.2",
-    "vite": "^5.0.8"
-  },
-  "dependencies": {
-    "@codemirror/theme-one-dark": "^6.1.2",
-    "codemirror": "^6.0.1",
-    "ylang": "file:../pkg"
-  }
+    "name": "web",
+    "private": true,
+    "version": "0.0.0",
+    "type": "module",
+    "scripts": {
+        "dev": "vite",
+        "build": "tsc && vite build",
+        "preview": "vite preview",
+        "prepare": "lezer-generator src/y.grammar -o src/parser.js"
+    },
+    "devDependencies": {
+        "@lezer/generator": "^1.5.1",
+        "@types/node": "^20.10.6",
+        "typescript": "^5.2.2",
+        "vite": "^5.0.8"
+    },
+    "dependencies": {
+        "@codemirror/autocomplete": "^6.11.1",
+        "@codemirror/lint": "^6.4.2",
+        "@codemirror/theme-one-dark": "^6.1.2",
+        "@lezer/lr": "^1.3.14",
+        "codemirror": "^6.0.1",
+        "ylang": "file:../pkg"
+    }
 }

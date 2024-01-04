@@ -1,0 +1,105 @@
+@precedence {
+  member,
+  newArgs,
+  call,
+  times @left,
+  plus @left,
+  rel @left,
+  ternary @right,
+  assign @right,
+
+  forIn,
+  else,
+  statement @cut
+}
+
+
+@top Program { statement* }
+
+@skip { space }
+
+kw<T> {
+  @specialize<Identifier, T>
+}
+
+
+semi { ";" }
+
+statement[@isGroup=Statement] {
+  If |
+  Let |
+  Fn |
+  Block |
+  Expr { expression semi } |
+  Empty { ";" }
+}
+
+Block {
+  !statement "{" statement* "}"
+}
+
+If {
+  kw<"if"> expression Block (!else kw<"else"> (If | Block))?
+}
+
+Let {
+  kw<"let"> Identifier ("=" statement)? semi
+}
+
+Fn {
+  kw<"fn"> ParamList "->" type Block
+}
+
+ParamList {
+  (Identifier ":" type ("," Identifier ":" type)*)?
+}
+
+
+type[@isGroup=Type] {
+  Str { "string" } |
+  Num { "number" } |
+  Bool { "boolean" }
+}
+
+expression[@isGroup=Expression] {
+  Number |
+  String |
+  Identifier |
+  Boolean |
+  Call |
+  Unary |
+  Binary
+}
+
+Binary { 
+  "(" expression ("+" | "-" | "*" | "/" | "==" | "!=" | ">=" | ">" | "<=" | "<") expression ")"
+}
+
+Unary {
+  ("!" | "-") expression
+}
+
+
+Call {
+  expression !call ArgList semi
+}
+
+ArgList {
+  "(" (expression ("," expression)*)? ")"
+}
+
+@tokens {
+  Identifier { $[a-zA-Z_]+ }
+
+  Number { $[0-9]+ }
+
+  String { '"' (!["\\] | "\\" _)* '"' }
+
+  Boolean { "#t" | "#f" }
+
+  space { @whitespace+ }
+
+  "(" ")"
+}
+
+@detectDelim
