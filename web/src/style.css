@@ -4,8 +4,6 @@
 }
 body {
     background-color: #282c34;
-    min-height: 100vh;
-    padding: 2rem;
 }
 
 button {
@@ -23,9 +21,13 @@ button:hover {
 }
 
 section {
+    padding-top: 2rem;
+    min-height: 100vh;
+    max-width: 1000px;
+    margin: auto;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 16px;
 }
 
 #logo {
