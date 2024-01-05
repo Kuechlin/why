@@ -1,4 +1,6 @@
-use crate::types::{Node, Span, Spanned, SyntaxErr, Token, Type, Value};
+use crate::types::{
+    nodes::Node, tokens::Token, values::Type, values::Value, Span, Spanned, SyntaxErr,
+};
 
 type ParserResult = Result<Node, SyntaxErr>;
 type TypeResult = Result<Spanned<Type>, SyntaxErr>;

@@ -1,6 +1,6 @@
 use analyser::AnalyserCtx;
 use interpretor::ExecCtx;
-use types::{SyntaxErr, Value};
+use types::{values::Value, SyntaxErr};
 use wasm_bindgen::prelude::*;
 
 mod analyser;

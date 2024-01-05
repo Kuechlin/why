@@ -1,4 +1,4 @@
-use crate::types::{Spanned, SyntaxErr, Token};
+use crate::types::{tokens::Token, Spanned, SyntaxErr};
 
 struct LexerCtx {
     source: Vec<char>,

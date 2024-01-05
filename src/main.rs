@@ -29,7 +29,7 @@ use std::io::{self, Write};
 use colored::Colorize;
 use types::SyntaxErr;
 
-use crate::{analyser::AnalyserCtx, interpretor::ExecCtx, types::Value};
+use crate::{analyser::AnalyserCtx, interpretor::ExecCtx, types::values::Value};
 
 mod analyser;
 mod interpretor;

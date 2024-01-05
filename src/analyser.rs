@@ -1,6 +1,12 @@
 use std::collections::HashMap;
 
-use crate::types::{BinaryOp, Expr, Node, Span, Spanned, SyntaxErr, Token, Type, UnaryOp};
+use crate::types::{
+    exprs::{BinaryOp, Expr, UnaryOp},
+    nodes::Node,
+    tokens::Token,
+    values::Type,
+    Span, Spanned, SyntaxErr,
+};
 
 type AnalyserResult = Result<Expr, SyntaxErr>;
 
@@ -92,7 +98,7 @@ impl AnalyserCtx<'_> {
         let expr = self.visit(node)?;
         let typedef = expr.get_return();
 
-        match self.set(&name.0, typedef) {
+        match self.set(&name.0, typedef.into_owned()) {
             Ok(_) => Ok(Expr::Let {
                 name: name.0.to_owned(),
                 expr: Box::new(expr),
@@ -109,12 +115,12 @@ impl AnalyserCtx<'_> {
     ) -> AnalyserResult {
         let cond_expr = self.visit_expr(cond)?;
         let then_expr = self.visit(then)?;
-        let typedef = then_expr.get_return();
+        let typedef = then_expr.get_return().into_owned();
 
         match or {
             Some(node) => {
                 let expr = self.visit(node)?;
-                if expr.get_return() != typedef {
+                if *expr.get_return() != typedef {
                     error(
                         "if and else arms need to return the same value",
                         node.get_span(),
@@ -153,7 +159,7 @@ impl AnalyserCtx<'_> {
         }
         // validate expression
         let expr = ctx.visit(&block)?;
-        if &expr.get_return() != returns.as_ref() {
+        if expr.get_return().as_ref() != returns.as_ref() {
             return error("function block has invalid return type", block.get_span());
         }
 
@@ -193,7 +199,7 @@ impl AnalyserCtx<'_> {
                 expr: Box::new(expr),
                 typedef: Type::Bool,
             }),
-            Token::Minus => match expr.get_return() {
+            Token::Minus => match expr.get_return().as_ref() {
                 Type::Number => Ok(Expr::Unary {
                     op: UnaryOp::Mins,
                     expr: Box::new(expr),
@@ -221,7 +227,7 @@ impl AnalyserCtx<'_> {
         let right_expr = self.visit_expr(right)?;
 
         fn check_math(op: BinaryOp, span: &Span, l: Expr, r: Expr) -> AnalyserResult {
-            if l.get_return() != Type::Number || r.get_return() != Type::Number {
+            if *l.get_return() != Type::Number || *r.get_return() != Type::Number {
                 error("operator can only be used for numbers", span)
             } else {
                 Ok(Expr::Binary {
@@ -245,7 +251,7 @@ impl AnalyserCtx<'_> {
             }
         }
         match op.0 {
-            Token::Plus => match left_expr.get_return() {
+            Token::Plus => match left_expr.get_return().as_ref() {
                 Type::String => Ok(Expr::Binary {
                     op: BinaryOp::Plus,
                     left: Box::new(left_expr),
@@ -310,7 +316,7 @@ impl AnalyserCtx<'_> {
                 }
                 node => self.visit(node)?,
             };
-            if arg_expr.get_return() != arg_type.1 {
+            if *arg_expr.get_return() != arg_type.1 {
                 return error("invalid arg type", arg.get_span());
             }
             epxr_args.push(arg_expr);

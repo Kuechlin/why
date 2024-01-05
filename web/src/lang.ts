@@ -24,7 +24,6 @@ const YLang = LRLanguage.define({
             }),
             styleTags({
                 "Call/Identifier": t.function(t.variableName),
-                "Let/Identifier": t.definition(t.variableName),
                 Identifier: t.variableName,
                 Number: t.number,
                 Boolean: t.atom,

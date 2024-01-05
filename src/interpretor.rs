@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
-use crate::types::{BinaryOp, Expr, RuntimeErr, Type, UnaryOp, Value};
+use crate::types::{
+    exprs::BinaryOp, exprs::Expr, exprs::UnaryOp, values::Type, values::Value, RuntimeErr,
+};
 
 type EvalResult = Result<Value, RuntimeErr>;
 
