@@ -43,7 +43,7 @@ If {
 }
 
 Let {
-  kw<"let"> Identifier ("=" statement)? semi
+  Identifier "=" statement semi
 }
 
 Fn {
@@ -66,7 +66,7 @@ expression[@isGroup=Expression] {
   Number |
   String |
   Identifier |
-  Boolean |
+  @specialize[@name=Boolean]<Identifier, "true" | "false"> |
   Call |
   Unary |
   Binary
@@ -95,8 +95,6 @@ ArgList {
   Number { $[0-9]+ }
 
   String { '"' (!["\\] | "\\" _)* '"' }
-
-  Boolean { "#t" | "#f" }
 
   space { @whitespace+ }
 

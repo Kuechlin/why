@@ -14,19 +14,19 @@
 
 **language example**
 
-```y
-let a = 0;
-let b = "str";
-let c = true;
-let test = fn x: num, y: str, z: bool -> str {
+```
+a = 0;
+b = "str";
+c = true;
+test = fn x: num, y: str, z: bool -> str {
   "num:" + x + " str:" + y + " bool:" + z
 };
 
 test(a, b, c)
 
-let wrapper = fn inner: (fn a: number -> number) -> number {
+wrapper = fn inner: (fn a: num -> num) -> num {
   inner(20)
-}
+};
 
 wrapper({
   a * 4

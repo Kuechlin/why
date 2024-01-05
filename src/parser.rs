@@ -45,43 +45,23 @@ impl ParserCtx<'_> {
     fn current(&self) -> Spanned<Token> {
         self.tokens[self.current].clone()
     }
+    fn start(&self) -> usize {
+        self.current().1.start
+    }
     fn end(&self) -> usize {
         self.previous().1.end
     }
 
     // statement
     fn statement(&mut self) -> ParserResult {
-        self.variable()
-    }
-
-    fn variable(&mut self) -> ParserResult {
-        if !self.is(&[Token::Let]) {
-            return Ok(self.condition()?);
-        }
-        let start = self.previous().1.start;
-
-        let name = self.identifer()?;
-        // init expression
-        if !self.is(&[Token::Equal]) {
-            return error("Initializer expected", &self.current().1);
-        }
-        let expr = Box::new(self.statement()?);
-        // check end
-        if !self.is(&[Token::Semicolon]) {
-            return error("Expect ';' after statement", &self.current().1);
-        }
-        Ok(Node::Let {
-            name,
-            expr,
-            span: start..self.end(),
-        })
+        self.condition()
     }
 
     fn condition(&mut self) -> ParserResult {
+        let start = self.start();
         if !self.is(&[Token::If]) {
             return Ok(self.function()?);
         }
-        let start = self.previous().1.start;
 
         let cond = self.expression()?;
         if !self.check(Token::LeftBrace) {
@@ -102,7 +82,7 @@ impl ParserCtx<'_> {
     }
 
     fn function(&mut self) -> ParserResult {
-        let start = self.current().1.start;
+        let start = self.start();
         if !self.check(Token::Fn) {
             return Ok(self.block()?);
         }
@@ -117,10 +97,10 @@ impl ParserCtx<'_> {
     }
 
     fn block(&mut self) -> ParserResult {
+        let start = self.start();
         if !self.is(&[Token::LeftBrace]) {
             return Ok(self.expression()?);
         }
-        let start = self.previous().1.start;
 
         let mut nodes = Vec::new();
         while !self.check(Token::RightBrace) && !self.is_end() {
@@ -163,7 +143,7 @@ impl ParserCtx<'_> {
     }
 
     fn binary(&mut self, tokens: &[Token], nested: fn(&mut Self) -> ParserResult) -> ParserResult {
-        let start = self.current().1.start;
+        let start = self.start();
         let mut expr = nested(self)?;
 
         while self.is(tokens) {
@@ -181,7 +161,7 @@ impl ParserCtx<'_> {
 
     // (! | -) unary | primary
     fn unary(&mut self) -> ParserResult {
-        let start = self.current().1.start;
+        let start = self.start();
         if self.is(&[Token::Bang, Token::Minus]) {
             let op = self.previous();
             let expr = self.unary()?;
@@ -200,10 +180,15 @@ impl ParserCtx<'_> {
             Token::Bool(val) => Ok(Node::Literal((Value::Bool(val), current.1))),
             Token::Number(val) => Ok(Node::Literal((Value::Number(val), current.1))),
             Token::String(val) => Ok(Node::Literal((Value::String(val), current.1))),
-            Token::Identifier(val) => match self.check(Token::LeftParen) {
-                true => self.call((val, current.1)),
-                false => Ok(Node::Identifier((val, current.1))),
-            },
+            Token::Identifier(val) => {
+                if self.check(Token::LeftParen) {
+                    self.call((val, current.1))
+                } else if self.check(Token::Equal) {
+                    self.variable((val, current.1))
+                } else {
+                    Ok(Node::Identifier((val, current.1)))
+                }
+            }
             Token::LeftParen => {
                 // group
                 let expr = self.expression()?;
@@ -217,8 +202,25 @@ impl ParserCtx<'_> {
         }
     }
 
+    fn variable(&mut self, name: Spanned<String>) -> ParserResult {
+        let start = self.start();
+        if !self.is(&[Token::Equal]) {
+            return error("initializer expected", &name.1);
+        }
+        let expr = Box::new(self.statement()?);
+        // check end
+        if !self.is(&[Token::Semicolon]) {
+            return error("Expect ';' after statement", &self.current().1);
+        }
+        Ok(Node::Let {
+            name,
+            expr,
+            span: start..self.end(),
+        })
+    }
+
     fn call(&mut self, name: Spanned<String>) -> ParserResult {
-        let start = self.current().1.start;
+        let start = self.start();
         if !self.is(&[Token::LeftParen]) {
             return error("Expect '(' after identifer", &name.1);
         }
@@ -281,7 +283,7 @@ impl ParserCtx<'_> {
     }
 
     fn fn_type(&mut self) -> TypeResult {
-        let start = self.current().1.start;
+        let start = self.start();
         if !self.is(&[Token::Fn]) {
             return self.value_type();
         }

@@ -36,7 +36,6 @@ pub enum Token {
     Fn,
     If,
     Else,
-    Let,
 }
 
 pub type Span = std::ops::Range<usize>;
