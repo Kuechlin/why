@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 #[derive(PartialEq, Clone, Debug)]
 pub enum Token {
     LeftParen,
@@ -69,8 +71,7 @@ pub enum Node {
     },
     Let {
         name: Spanned<String>,
-        init: Option<Box<Self>>,
-        typedef: Option<Spanned<Type>>,
+        expr: Box<Self>,
         span: Span,
     },
     If {
@@ -110,8 +111,7 @@ impl Node {
             Node::Block { nodes: _, span } => span,
             Node::Let {
                 name: _,
-                init: _,
-                typedef: _,
+                expr: _,
                 span,
             } => span,
             Node::If {
@@ -193,21 +193,6 @@ impl Value {
     }
 }
 
-impl ToString for Value {
-    fn to_string(&self) -> String {
-        match self {
-            Value::Number(x) => x.to_string(),
-            Value::String(x) => x.clone(),
-            Value::Bool(x) => x.to_string(),
-            Value::Fn {
-                typedef: _,
-                expr: _,
-            } => "fn".to_owned(),
-            Value::Void => "".to_owned(),
-        }
-    }
-}
-
 impl PartialOrd for Value {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         match (self, other) {
@@ -227,12 +212,12 @@ pub enum Expr {
     },
     Literal(Value),
     Unary {
-        op: Token,
+        op: UnaryOp,
         expr: Box<Self>,
         typedef: Type,
     },
     Binary {
-        op: Token,
+        op: BinaryOp,
         left: Box<Self>,
         right: Box<Self>,
         typedef: Type,
@@ -259,6 +244,26 @@ pub enum Expr {
         args: Vec<Self>,
         typedef: Type,
     },
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum BinaryOp {
+    Plus,
+    Minus,
+    Mul,
+    Div,
+    Equal,
+    NotEqual,
+    Greater,
+    GreaterEqual,
+    Less,
+    LessEqual,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum UnaryOp {
+    Bang,
+    Mins,
 }
 
 impl Expr {
@@ -294,6 +299,129 @@ impl Expr {
                 typedef,
             } => typedef.clone(),
             Expr::Fn { block: _, typedef } => typedef.clone(),
+        }
+    }
+}
+
+impl Display for BinaryOp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                BinaryOp::Plus => "+",
+                BinaryOp::Minus => "-",
+                BinaryOp::Mul => "*",
+                BinaryOp::Div => "/",
+                BinaryOp::Equal => "==",
+                BinaryOp::NotEqual => "!=",
+                BinaryOp::Greater => ">",
+                BinaryOp::GreaterEqual => ">=",
+                BinaryOp::Less => "<",
+                BinaryOp::LessEqual => "<=",
+            }
+        )
+    }
+}
+
+impl Display for UnaryOp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                UnaryOp::Bang => "!",
+                UnaryOp::Mins => "-",
+            }
+        )
+    }
+}
+
+impl Display for Expr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Expr::Var { name, typedef: _ } => write!(f, "{name}"),
+            Expr::Literal(val) => write!(f, "{}", val.to_string()),
+            Expr::Unary {
+                op,
+                expr,
+                typedef: _,
+            } => write!(f, "{op}{expr}"),
+            Expr::Binary {
+                op,
+                left,
+                right,
+                typedef: _,
+            } => write!(f, "{left} {op} {right}"),
+            Expr::Block { stmts } => {
+                let list = stmts
+                    .iter()
+                    .map(|s| format!("\t{s}"))
+                    .collect::<Vec<String>>()
+                    .join("\n");
+                write!(f, "{{\n{list}\n}}")
+            }
+            Expr::Let { name, expr } => {
+                write!(f, "let {name}: {} = {expr};", expr.get_return())
+            }
+            Expr::If {
+                cond,
+                then,
+                or,
+                typedef: _,
+            } => match or {
+                None => write!(f, "if {cond} {then}"),
+                Some(x) => write!(f, "if {cond} {then} else {x}"),
+            },
+            Expr::Fn { block, typedef } => write!(f, "{typedef} {block}"),
+            Expr::Call {
+                name,
+                args,
+                typedef: _,
+            } => {
+                let list = args
+                    .iter()
+                    .map(|x| format!("{x}"))
+                    .collect::<Vec<String>>()
+                    .join(", ");
+                write!(f, "{name}({list})")
+            }
+        }
+    }
+}
+
+impl Display for Type {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let val = match self {
+            Type::Number => "number",
+            Type::String => "string",
+            Type::Bool => "boolean",
+            Type::Void => "_",
+            Type::Fn { args, returns } => {
+                let mut list = args
+                    .iter()
+                    .map(|a| format!("{}: {}", a.0, a.1))
+                    .collect::<Vec<String>>()
+                    .join(", ");
+
+                if !list.is_empty() {
+                    list += " ";
+                }
+                return write!(f, "fn {list}-> {returns}");
+            }
+        };
+        write!(f, "{val}")
+    }
+}
+
+impl Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Value::Number(x) => write!(f, "{x}"),
+            Value::String(x) => write!(f, "{x}"),
+            Value::Bool(x) => write!(f, "{x}"),
+            Value::Fn { typedef, expr } => write!(f, "{typedef} {expr}"),
+            Value::Void => write!(f, "_"),
         }
     }
 }

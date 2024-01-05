@@ -65,30 +65,18 @@ impl ParserCtx<'_> {
             Token::Identifier(name) => (name, name_token.1),
             _ => return error("Identifier expected", &self.previous().1),
         };
-
-        let mut typedef = None;
-        let mut init = None;
-        // type def
-        if self.check(Token::DotDot) {
-            // parse type def
-            typedef = Some(self.typedef()?);
-        }
         // init expression
-        else if self.is(&[Token::Equal]) {
-            init = Some(Box::new(self.statement()?));
+        if !self.is(&[Token::Equal]) {
+            return error("Initializer expected", &self.current().1);
         }
-        // error
-        else {
-            return error("Initializer or typedef expected", &self.current().1);
-        }
+        let expr = Box::new(self.statement()?);
         // check end
         if !self.is(&[Token::Semicolon]) {
             return error("Expect ';' after statement", &self.current().1);
         }
         Ok(Node::Let {
             name,
-            init,
-            typedef,
+            expr,
             span: start..self.end(),
         })
     }

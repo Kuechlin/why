@@ -27,14 +27,14 @@ impl WhyErr {
 #[wasm_bindgen]
 pub fn why(value: &str) -> Result<JsValue, WhyErr> {
     match eval(value) {
-        Ok(val) => Ok(match val {
-            Value::Number(val) => JsValue::from_f64(val),
-            Value::String(val) => JsValue::from_str(&val),
-            Value::Bool(val) => JsValue::from_bool(val),
+        Ok(val) => Ok(match &val {
+            Value::Number(val) => JsValue::from_f64(*val),
+            Value::String(val) => JsValue::from_str(val),
+            Value::Bool(val) => JsValue::from_bool(*val),
             Value::Fn {
                 typedef: _,
                 expr: _,
-            } => JsValue::from_str("function"),
+            } => JsValue::from_str(format!("{val}").as_str()),
             Value::Void => JsValue::UNDEFINED,
         }),
         Err(err) => Err(WhyErr {

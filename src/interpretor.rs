@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::types::{Expr, RuntimeErr, Token, Type, Value};
+use crate::types::{BinaryOp, Expr, RuntimeErr, Type, UnaryOp, Value};
 
 type EvalResult = Result<Value, RuntimeErr>;
 
@@ -154,45 +154,41 @@ impl ExecCtx<'_> {
     }
 
     // expressions
-    fn eval_unary(&mut self, op: &Token, expr: &Box<Expr>) -> EvalResult {
+    fn eval_unary(&mut self, op: &UnaryOp, expr: &Box<Expr>) -> EvalResult {
         let value = self.eval(expr)?;
 
-        if *op == Token::Bang {
-            Ok(Value::Bool(!value.is_truthy()))
-        } else if *op == Token::Minus {
-            match value {
+        match op {
+            UnaryOp::Bang => Ok(Value::Bool(!value.is_truthy())),
+            UnaryOp::Mins => match value {
                 Value::Number(x) => Ok(Value::Number(-x)),
                 _ => error("invalid value"),
-            }
-        } else {
-            error("invalid unary expression")
+            },
         }
     }
 
-    fn eval_binary(&mut self, op: &Token, left: &Box<Expr>, right: &Box<Expr>) -> EvalResult {
+    fn eval_binary(&mut self, op: &BinaryOp, left: &Box<Expr>, right: &Box<Expr>) -> EvalResult {
         let left_value = self.eval(left)?;
         let right_value = self.eval(right)?;
 
         match *op {
-            Token::Plus => match left_value {
+            BinaryOp::Plus => match left_value {
                 Value::String(val) => concat(&val, &right_value),
                 _ => math(op, &left_value, &right_value),
             },
-            Token::Minus => math(op, &left_value, &right_value),
-            Token::Star => math(op, &left_value, &right_value),
-            Token::Slash => math(op, &left_value, &right_value),
-            Token::BangEqual => Ok(Value::Bool(left_value != right_value)),
-            Token::EqualEqual => Ok(Value::Bool(left_value == right_value)),
-            Token::Greater => Ok(Value::Bool(left_value > right_value)),
-            Token::GreaterEqual => Ok(Value::Bool(left_value >= right_value)),
-            Token::Less => Ok(Value::Bool(left_value < right_value)),
-            Token::LessEqual => Ok(Value::Bool(left_value <= right_value)),
-            _ => error("invalid operator"),
+            BinaryOp::Minus => math(op, &left_value, &right_value),
+            BinaryOp::Mul => math(op, &left_value, &right_value),
+            BinaryOp::Div => math(op, &left_value, &right_value),
+            BinaryOp::NotEqual => Ok(Value::Bool(left_value != right_value)),
+            BinaryOp::Equal => Ok(Value::Bool(left_value == right_value)),
+            BinaryOp::Greater => Ok(Value::Bool(left_value > right_value)),
+            BinaryOp::GreaterEqual => Ok(Value::Bool(left_value >= right_value)),
+            BinaryOp::Less => Ok(Value::Bool(left_value < right_value)),
+            BinaryOp::LessEqual => Ok(Value::Bool(left_value <= right_value)),
         }
     }
 }
 
-fn math(op: &Token, left: &Value, right: &Value) -> EvalResult {
+fn math(op: &BinaryOp, left: &Value, right: &Value) -> EvalResult {
     let a = match left {
         Value::Number(x) => x,
         _ => return error("invalid left value"),
@@ -203,10 +199,10 @@ fn math(op: &Token, left: &Value, right: &Value) -> EvalResult {
     };
 
     Ok(Value::Number(match op {
-        Token::Plus => a + b,
-        Token::Minus => a - b,
-        Token::Star => a * b,
-        Token::Slash => a / b,
+        BinaryOp::Plus => a + b,
+        BinaryOp::Minus => a - b,
+        BinaryOp::Mul => a * b,
+        BinaryOp::Div => a / b,
         _ => return error("invalid operator"),
     }))
 }

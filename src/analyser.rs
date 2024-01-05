@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::types::{Expr, Node, Span, Spanned, SyntaxErr, Token, Type};
+use crate::types::{BinaryOp, Expr, Node, Span, Spanned, SyntaxErr, Token, Type, UnaryOp};
 
 type AnalyserResult = Result<Expr, SyntaxErr>;
 
@@ -61,10 +61,9 @@ impl AnalyserCtx<'_> {
             Node::Block { nodes, span: _ } => self.visit_block(nodes),
             Node::Let {
                 name,
-                init,
-                typedef,
+                expr,
                 span: _,
-            } => self.visit_let(name, init, typedef),
+            } => self.visit_let(name, expr),
             Node::If {
                 cond,
                 then,
@@ -89,33 +88,9 @@ impl AnalyserCtx<'_> {
         Ok(Expr::Block { stmts })
     }
 
-    fn visit_let(
-        &mut self,
-        name: &Spanned<String>,
-        init: &Option<Box<Node>>,
-        typed: &Option<Spanned<Type>>,
-    ) -> AnalyserResult {
-        let (expr, typedef) = match init {
-            Some(node) => {
-                let e = self.visit(node)?;
-
-                let typedef = match typed {
-                    Some(typedef) => {
-                        if typedef.0 != e.get_return() {
-                            return error("type and expression dont match", node.get_span());
-                        }
-                        typedef.0.clone()
-                    }
-                    None => e.get_return(),
-                };
-
-                (e, typedef)
-            }
-            None => match typed {
-                Some(typedef) => (Expr::Literal(typedef.0.get_default()), typedef.0.clone()),
-                None => return error("typedef or initializer expected", &name.1),
-            },
-        };
+    fn visit_let(&mut self, name: &Spanned<String>, node: &Box<Node>) -> AnalyserResult {
+        let expr = self.visit(node)?;
+        let typedef = expr.get_return();
 
         match self.set(&name.0, typedef) {
             Ok(_) => Ok(Expr::Let {
@@ -214,13 +189,13 @@ impl AnalyserCtx<'_> {
 
         match op.0 {
             Token::Bang => Ok(Expr::Unary {
-                op: op.0.to_owned(),
+                op: UnaryOp::Bang,
                 expr: Box::new(expr),
                 typedef: Type::Bool,
             }),
             Token::Minus => match expr.get_return() {
                 Type::Number => Ok(Expr::Unary {
-                    op: op.0.to_owned(),
+                    op: UnaryOp::Mins,
                     expr: Box::new(expr),
                     typedef: Type::Number,
                 }),
@@ -245,24 +220,24 @@ impl AnalyserCtx<'_> {
         let left_expr = self.visit_expr(left)?;
         let right_expr = self.visit_expr(right)?;
 
-        fn check_math(op: &Spanned<Token>, l: Expr, r: Expr) -> AnalyserResult {
+        fn check_math(op: BinaryOp, span: &Span, l: Expr, r: Expr) -> AnalyserResult {
             if l.get_return() != Type::Number || r.get_return() != Type::Number {
-                error("operator can only be used for numbers", &op.1)
+                error("operator can only be used for numbers", span)
             } else {
                 Ok(Expr::Binary {
-                    op: op.0.to_owned(),
+                    op,
                     left: Box::new(l),
                     right: Box::new(r),
                     typedef: Type::Number,
                 })
             }
         }
-        fn check_compare(op: &Spanned<Token>, l: Expr, r: Expr) -> AnalyserResult {
+        fn check_compare(op: BinaryOp, span: &Span, l: Expr, r: Expr) -> AnalyserResult {
             if l.get_return() != r.get_return() {
-                error("can only compare same types", &op.1)
+                error("can only compare same types", span)
             } else {
                 Ok(Expr::Binary {
-                    op: op.0.to_owned(),
+                    op,
                     left: Box::new(l),
                     right: Box::new(r),
                     typedef: Type::Bool,
@@ -272,22 +247,24 @@ impl AnalyserCtx<'_> {
         match op.0 {
             Token::Plus => match left_expr.get_return() {
                 Type::String => Ok(Expr::Binary {
-                    op: op.0.to_owned(),
+                    op: BinaryOp::Plus,
                     left: Box::new(left_expr),
                     right: Box::new(right_expr),
                     typedef: Type::String,
                 }),
-                _ => check_math(op, left_expr, right_expr),
+                _ => check_math(BinaryOp::Plus, &op.1, left_expr, right_expr),
             },
-            Token::Minus => check_math(op, left_expr, right_expr),
-            Token::Star => check_math(op, left_expr, right_expr),
-            Token::Slash => check_math(op, left_expr, right_expr),
-            Token::BangEqual => check_compare(op, left_expr, right_expr),
-            Token::EqualEqual => check_compare(op, left_expr, right_expr),
-            Token::Greater => check_compare(op, left_expr, right_expr),
-            Token::GreaterEqual => check_compare(op, left_expr, right_expr),
-            Token::Less => check_compare(op, left_expr, right_expr),
-            Token::LessEqual => check_compare(op, left_expr, right_expr),
+            Token::Minus => check_math(BinaryOp::Minus, &op.1, left_expr, right_expr),
+            Token::Star => check_math(BinaryOp::Mul, &op.1, left_expr, right_expr),
+            Token::Slash => check_math(BinaryOp::Div, &op.1, left_expr, right_expr),
+            Token::BangEqual => check_compare(BinaryOp::NotEqual, &op.1, left_expr, right_expr),
+            Token::EqualEqual => check_compare(BinaryOp::Equal, &op.1, left_expr, right_expr),
+            Token::Greater => check_compare(BinaryOp::Greater, &op.1, left_expr, right_expr),
+            Token::GreaterEqual => {
+                check_compare(BinaryOp::GreaterEqual, &op.1, left_expr, right_expr)
+            }
+            Token::Less => check_compare(BinaryOp::Less, &op.1, left_expr, right_expr),
+            Token::LessEqual => check_compare(BinaryOp::LessEqual, &op.1, left_expr, right_expr),
             _ => error("invalid operator", &op.1),
         }
     }
