@@ -86,7 +86,7 @@ impl LexerCtx {
         }
     }
     fn identifier(&mut self) {
-        while self.peek().is_alphanumeric() {
+        while self.peek().is_alphanumeric() || self.peek() == '_' {
             self.current += 1;
         }
         let value = self.get_current();
@@ -141,7 +141,7 @@ impl LexerCtx {
                 // number
                 if c.is_digit(10) {
                     self.number()?;
-                } else if c.is_alphabetic() {
+                } else if c.is_alphabetic() || c == '_' {
                     self.identifier();
                 } else {
                     // error

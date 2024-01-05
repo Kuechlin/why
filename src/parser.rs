@@ -142,16 +142,37 @@ impl ParserCtx<'_> {
 
     // expressions
     fn expression(&mut self) -> ParserResult {
-        self.equality()
+        // equality
+        self.binary(&[Token::BangEqual, Token::EqualEqual], |n| {
+            // comparisson
+            n.binary(
+                &[
+                    Token::Greater,
+                    Token::GreaterEqual,
+                    Token::Less,
+                    Token::LessEqual,
+                ],
+                |n| {
+                    // plus and minus
+                    n.binary(&[Token::Plus, Token::Minus], |n| {
+                        // multiply and divide
+                        n.binary(&[Token::Star, Token::Slash], |n| {
+                            // unary or primary
+                            n.unary()
+                        })
+                    })
+                },
+            )
+        })
     }
-    // comparison (!= | ==) comparison
-    fn equality(&mut self) -> ParserResult {
-        let start = self.current().1.start;
-        let mut expr = self.comparison()?;
 
-        while self.is(&[Token::BangEqual, Token::EqualEqual]) {
+    fn binary(&mut self, tokens: &[Token], nested: fn(&mut Self) -> ParserResult) -> ParserResult {
+        let start = self.current().1.start;
+        let mut expr = nested(self)?;
+
+        while self.is(tokens) {
             let op = self.previous();
-            let right = self.comparison()?;
+            let right = nested(self)?;
             expr = Node::Binary {
                 op,
                 left: Box::new(expr),
@@ -161,62 +182,7 @@ impl ParserCtx<'_> {
         }
         Ok(expr)
     }
-    // term (< | <= | > | >=) term
-    fn comparison(&mut self) -> ParserResult {
-        let start = self.current().1.start;
-        let mut expr = self.term()?;
 
-        while self.is(&[
-            Token::Greater,
-            Token::GreaterEqual,
-            Token::Less,
-            Token::LessEqual,
-        ]) {
-            let op = self.previous();
-            let right = self.term()?;
-            expr = Node::Binary {
-                op,
-                left: Box::new(expr),
-                right: Box::new(right),
-                span: start..self.end(),
-            };
-        }
-        Ok(expr)
-    }
-    // factory (+ | -) factory
-    fn term(&mut self) -> ParserResult {
-        let start = self.current().1.start;
-        let mut expr = self.factory()?;
-
-        while self.is(&[Token::Plus, Token::Minus]) {
-            let op = self.previous();
-            let right = self.factory()?;
-            expr = Node::Binary {
-                op,
-                left: Box::new(expr),
-                right: Box::new(right),
-                span: start..self.end(),
-            };
-        }
-        Ok(expr)
-    }
-    // unary (* | /) unary
-    fn factory(&mut self) -> ParserResult {
-        let start = self.current().1.start;
-        let mut expr = self.unary()?;
-
-        while self.is(&[Token::Star, Token::Slash]) {
-            let op = self.previous();
-            let right = self.unary()?;
-            expr = Node::Binary {
-                op,
-                left: Box::new(expr),
-                right: Box::new(right),
-                span: start..self.end(),
-            };
-        }
-        Ok(expr)
-    }
     // (! | -) unary | primary
     fn unary(&mut self) -> ParserResult {
         let start = self.current().1.start;
@@ -342,9 +308,9 @@ impl ParserCtx<'_> {
         let current = self.advance();
         return match current.0 {
             Token::Identifier(name) => match name.as_str() {
-                "number" => Ok((Type::Number, current.1)),
-                "string" => Ok((Type::String, current.1)),
-                "boolean" => Ok((Type::Bool, current.1)),
+                "num" => Ok((Type::Number, current.1)),
+                "str" => Ok((Type::String, current.1)),
+                "bool" => Ok((Type::Bool, current.1)),
                 _ => Err(SyntaxErr {
                     message: "type identifier exprected".to_owned(),
                     source: current.1,

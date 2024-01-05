@@ -1,6 +1,8 @@
-let a: number;
-let b = 0;
+let a = 0;
+let b = "str";
+let c = true;
+let test = fn x: num, y: str, z: bool -> str {
+  "num:" + x + " str:" + y + " bool:" + z
+};
 
-let test = fn (x: number) -> number {}
-let min: fn -> string;
-let test: fn (a: number, b: string) -> number;
+test(a, b, c)

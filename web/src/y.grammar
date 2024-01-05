@@ -56,9 +56,9 @@ ParamList {
 
 
 type[@isGroup=Type] {
-  Str { "string" } |
-  Num { "number" } |
-  Bool { "boolean" }
+  Str { "str" } |
+  Num { "num" } |
+  Bool { "bool" }
 }
 
 expression[@isGroup=Expression] {
@@ -89,7 +89,7 @@ ArgList {
 }
 
 @tokens {
-  Identifier { $[a-zA-Z_]+ }
+  Identifier { (@asciiLetter | "_") (@asciiLetter | @digit)* }
 
   Number { $[0-9]+ }
 

@@ -32,6 +32,7 @@ const YLang = LRLanguage.define({
                 Block: t.brace,
                 Fn: t.function(t.keyword),
                 Type: t.typeName,
+                Call: t.function(t.variableName),
                 "( )": t.paren,
             }),
         ],
