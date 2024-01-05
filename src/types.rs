@@ -51,6 +51,7 @@ pub struct RuntimeErr {
     pub message: String,
 }
 
+#[derive(Clone)]
 pub enum Node {
     Literal(Spanned<Value>),
     Identifier(Spanned<String>),

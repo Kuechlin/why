@@ -60,11 +60,7 @@ impl ParserCtx<'_> {
         }
         let start = self.previous().1.start;
 
-        let name_token = self.advance();
-        let name = match name_token.0 {
-            Token::Identifier(name) => (name, name_token.1),
-            _ => return error("Identifier expected", &self.previous().1),
-        };
+        let name = self.identifer()?;
         // init expression
         if !self.is(&[Token::Equal]) {
             return error("Initializer expected", &self.current().1);
@@ -230,7 +226,17 @@ impl ParserCtx<'_> {
         // fn args
         while !self.check(Token::RightParen) && !self.is_end() {
             // get expr
-            let expr = self.statement()?;
+            let expr = match self.statement()? {
+                Node::Block { nodes, span } => Node::Fn {
+                    typedef: (Type::Void, 0..0),
+                    block: Box::new(Node::Block {
+                        nodes,
+                        span: span.clone(),
+                    }),
+                    span: span.clone(),
+                },
+                node => node,
+            };
             args.push(expr);
             // break when no comma
             if !self.is(&[Token::Comma]) {
@@ -247,47 +253,59 @@ impl ParserCtx<'_> {
         })
     }
 
+    fn identifer(&mut self) -> Result<Spanned<String>, SyntaxErr> {
+        let token = self.advance();
+        match token.0 {
+            Token::Identifier(name) => Ok((name, token.1)),
+            _ => Err(SyntaxErr {
+                message: "Identifier expected".to_owned(),
+                source: self.previous().1.clone(),
+            }),
+        }
+    }
+
     // types
     fn typedef(&mut self) -> TypeResult {
-        if !self.is(&[Token::DotDot, Token::Arrow]) {
-            return Err(SyntaxErr {
-                message: "type definition expected".to_owned(),
-                source: self.current().1,
-            });
+        if !self.is(&[Token::LeftParen]) {
+            return self.value_type();
         }
-
-        self.fn_type()
+        let t = self.fn_type()?;
+        if self.is(&[Token::RightParen]) {
+            Ok(t)
+        } else {
+            Err(SyntaxErr {
+                message: "Expected ')' after type group".to_owned(),
+                source: self.current().1.clone(),
+            })
+        }
     }
 
     fn fn_type(&mut self) -> TypeResult {
+        let start = self.current().1.start;
         if !self.is(&[Token::Fn]) {
             return self.value_type();
         }
-        let start = self.previous().1.start;
         // parse args
         let mut args = Vec::new();
         // fn args
         while !self.check(Token::Arrow) && !self.is_end() {
             // get name
-            let current = self.advance();
-            let name = match current.0 {
-                Token::Identifier(name) => name,
-                _ => {
-                    return Err(SyntaxErr {
-                        message: "identifier exprected".to_owned(),
-                        source: current.1,
-                    })
-                }
-            };
+            let name = self.identifer()?;
             // get type
+            if !self.is(&[Token::DotDot]) {
+                return Err(SyntaxErr {
+                    message: "type definition expected".to_owned(),
+                    source: self.current().1,
+                });
+            }
             let typedef = self.typedef()?;
-            args.push((name, typedef.0));
+            args.push((name.0, typedef.0));
             // break when no comma
             if !self.is(&[Token::Comma]) {
                 break;
             }
         }
-        if !self.check(Token::Arrow) {
+        if !self.is(&[Token::Arrow]) {
             return Err(SyntaxErr {
                 message: "Expect '->' at end of args to define return value".to_owned(),
                 source: self.current().1,
@@ -312,7 +330,7 @@ impl ParserCtx<'_> {
                 "str" => Ok((Type::String, current.1)),
                 "bool" => Ok((Type::Bool, current.1)),
                 _ => Err(SyntaxErr {
-                    message: "type identifier exprected".to_owned(),
+                    message: format!("type identifier exprected, found {name}"),
                     source: current.1,
                 }),
             },

@@ -294,7 +294,22 @@ impl AnalyserCtx<'_> {
                 Some(node) => node,
                 None => return error(format!("missing fn arg {}", &arg_type.0).as_str(), &name.1),
             };
-            let arg_expr = self.visit(arg)?;
+            // if arg is function use defined type
+            let arg_expr = match arg {
+                Node::Fn {
+                    typedef: _,
+                    block,
+                    span,
+                } => {
+                    let node = Node::Fn {
+                        typedef: (arg_type.1.clone(), span.start..span.start + 2),
+                        block: block.clone(),
+                        span: span.clone(),
+                    };
+                    self.visit(&node)?
+                }
+                node => self.visit(node)?,
+            };
             if arg_expr.get_return() != arg_type.1 {
                 return error("invalid arg type", arg.get_span());
             }

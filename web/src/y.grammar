@@ -58,7 +58,8 @@ ParamList {
 type[@isGroup=Type] {
   Str { "str" } |
   Num { "num" } |
-  Bool { "bool" }
+  Bool { "bool" } |
+  Func { "(" "fn" ":" type "->" type ")" }
 }
 
 expression[@isGroup=Expression] {
@@ -85,7 +86,7 @@ Call {
 }
 
 ArgList {
-  "(" (expression ("," expression)*)? ")"
+  "(" (statement ("," statement)*)? ")"
 }
 
 @tokens {

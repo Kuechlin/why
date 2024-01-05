@@ -30,8 +30,9 @@ const YLang = LRLanguage.define({
                 If: t.keyword,
                 Let: t.keyword,
                 Block: t.brace,
-                Fn: t.function(t.keyword),
+                Fn: t.keyword,
                 Type: t.typeName,
+                Func: t.keyword,
                 Call: t.function(t.variableName),
                 "( )": t.paren,
             }),
@@ -63,7 +64,7 @@ export const YLangLint = linter((view) => {
     return diagnostics;
 });
 
-const keywords = ["let", "fn", "number", "string", "boolean"];
+const keywords = ["let", "fn", "num", "str", "bool"];
 
 function ylangCompletions(context: CompletionContext): CompletionResult | null {
     let check = context.matchBefore(/: ?/) ?? context.matchBefore(/\-> ?/);
@@ -72,15 +73,15 @@ function ylangCompletions(context: CompletionContext): CompletionResult | null {
             from: context.pos,
             options: [
                 {
-                    label: "number",
+                    label: "num",
                     type: "type",
                 },
                 {
-                    label: "string",
+                    label: "str",
                     type: "type",
                 },
                 {
-                    label: "boolean",
+                    label: "bool",
                     type: "type",
                 },
             ],
