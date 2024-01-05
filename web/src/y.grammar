@@ -27,6 +27,7 @@ semi { ";" }
 
 statement[@isGroup=Statement] {
   If |
+  Is |
   Let |
   Fn |
   Block |
@@ -39,7 +40,15 @@ Block {
 }
 
 If {
-  kw<"if"> expression Block (!else kw<"else"> (If | Block))?
+  kw<"if"> statement Block (kw<"else"> (If | Block))?
+}
+
+Is {
+  statement kw<"is"> "{" Match* "}"
+}
+
+Match {
+  !statement Identifier? ("+" | "-" | "*" | "/" | "==" | "!=" | ">=" | ">" | "<=" | "<" | (":" type)) expression "->" statement
 }
 
 Let {
@@ -82,7 +91,7 @@ Unary {
 
 
 Call {
-  expression !call ArgList semi
+  expression !call ArgList
 }
 
 ArgList {

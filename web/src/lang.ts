@@ -7,9 +7,9 @@ import {
     foldNodeProp,
     indentNodeProp,
 } from "@codemirror/language";
-import { Diagnostic, linter } from "@codemirror/lint";
+import { linter } from "@codemirror/lint";
 import { styleTags, tags as t } from "@lezer/highlight";
-import { WhyErr, why } from "ylang";
+import { analyse } from "ylang";
 import { parser } from "./y.grammar";
 
 const YLang = LRLanguage.define({
@@ -29,6 +29,7 @@ const YLang = LRLanguage.define({
                 Boolean: t.atom,
                 String: t.string,
                 If: t.keyword,
+                Is: t.keyword,
                 Let: t.definition(t.brace),
                 Block: t.brace,
                 Fn: t.keyword,
@@ -49,20 +50,12 @@ export function YLanguage() {
 }
 
 export const YLangLint = linter((view) => {
-    const diagnostics: Diagnostic[] = [];
-    try {
-        why(view.state.doc.toString());
-    } catch (err) {
-        if (err instanceof WhyErr) {
-            diagnostics.push({
-                from: err.start,
-                to: err.end,
-                message: err.message,
-                severity: "error",
-            });
-        }
-    }
-    return diagnostics;
+    return analyse(view.state.doc.toString()).map((err) => ({
+        from: err.start,
+        to: err.end,
+        message: err.message,
+        severity: "error",
+    }));
 });
 
 const keywords = ["let", "fn", "num", "str", "bool"];

@@ -25,6 +25,21 @@ impl WhyErr {
 }
 
 #[wasm_bindgen]
+pub fn analyse(value: &str) -> Vec<WhyErr> {
+    match eval(value) {
+        Ok(_) => Vec::new(),
+        Err(err) => err
+            .iter()
+            .map(|e| WhyErr {
+                message: e.message.to_owned(),
+                start: e.source.start,
+                end: e.source.end,
+            })
+            .collect(),
+    }
+}
+
+#[wasm_bindgen]
 pub fn why(value: &str) -> Result<JsValue, WhyErr> {
     match eval(value) {
         Ok(val) => Ok(match &val {
@@ -37,25 +52,37 @@ pub fn why(value: &str) -> Result<JsValue, WhyErr> {
             } => JsValue::from_str(format!("{val}").as_str()),
             Value::Void => JsValue::UNDEFINED,
         }),
-        Err(err) => Err(WhyErr {
-            message: err.message,
-            start: err.source.start,
-            end: err.source.end,
-        }),
+        Err(err) => {
+            let e = err.last().unwrap();
+            Err(WhyErr {
+                message: e.message.to_owned(),
+                start: e.source.start,
+                end: e.source.end,
+            })
+        }
     }
 }
 
-fn eval(value: &str) -> Result<Value, SyntaxErr> {
-    let tokens = lexer::scan(value)?;
+fn eval(value: &str) -> Result<Value, Vec<SyntaxErr>> {
+    let tokens = match lexer::scan(value) {
+        Ok(token) => token,
+        Err(err) => return Err(vec![err]),
+    };
 
-    let nodes = parser::parse(&tokens)?;
+    let nodes = match parser::parse(&tokens) {
+        Ok(nodes) => nodes,
+        Err(err) => return Err(vec![err]),
+    };
 
-    let stmts = AnalyserCtx::new().analyse(&nodes)?;
+    let stmts = match AnalyserCtx::new().analyse(&nodes) {
+        Ok(stmts) => stmts,
+        Err(err) => return Err(err.to_vec()),
+    };
 
     ExecCtx::new().execute(&stmts).map(|x| x).or_else(|x| {
-        Err(SyntaxErr {
+        Err(vec![SyntaxErr {
             message: x.message,
             source: 0..value.len(),
-        })
+        }])
     })
 }

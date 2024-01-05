@@ -84,7 +84,9 @@ fn main() {
         let stmts = match analyser.analyse(&nodes) {
             Ok(e) => e,
             Err(err) => {
-                print_err(&buffer, &err);
+                for e in err {
+                    print_err(&buffer, &e);
+                }
                 continue;
             }
         };

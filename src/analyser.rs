@@ -13,6 +13,7 @@ type AnalyserResult = Result<Expr, SyntaxErr>;
 pub struct AnalyserCtx<'a> {
     pub enclosing: Option<&'a AnalyserCtx<'a>>,
     pub state: HashMap<String, Type>,
+    pub errors: Vec<SyntaxErr>,
 }
 
 fn error(msg: &str, span: &Span) -> AnalyserResult {
@@ -27,20 +28,30 @@ impl AnalyserCtx<'_> {
         AnalyserCtx {
             enclosing: None,
             state: HashMap::new(),
+            errors: Vec::new(),
         }
     }
-    pub fn analyse(&mut self, nodes: &[Node]) -> Result<Vec<Expr>, SyntaxErr> {
+    pub fn analyse(&mut self, nodes: &[Node]) -> Result<Vec<Expr>, &Vec<SyntaxErr>> {
         let mut stmts = Vec::new();
         for node in nodes {
-            stmts.push(self.visit(node)?);
+            match self.visit(node) {
+                Ok(expr) => stmts.push(expr),
+                Err(err) => self.errors.push(err),
+            }
         }
-        Ok(stmts)
+        let has_err = self.errors.len() == 0;
+        if has_err {
+            Ok(stmts)
+        } else {
+            Err(&self.errors)
+        }
     }
 
     fn derive(&self) -> AnalyserCtx {
         AnalyserCtx {
             enclosing: Some(self),
             state: HashMap::new(),
+            errors: Vec::new(),
         }
     }
     fn get(&self, key: &str) -> Option<&Type> {
@@ -59,6 +70,12 @@ impl AnalyserCtx<'_> {
             let _ = self.state.insert(key.to_string(), val);
             Ok(())
         }
+    }
+    fn err(&mut self, msg: &str, source: &Span) {
+        self.errors.push(SyntaxErr {
+            message: msg.to_owned(),
+            source: source.clone(),
+        })
     }
 
     // statements
@@ -89,8 +106,12 @@ impl AnalyserCtx<'_> {
         let mut ctx = self.derive();
         let mut stmts = Vec::new();
         for node in nodes {
-            stmts.push(ctx.visit(node)?);
+            match ctx.visit(node) {
+                Ok(expr) => stmts.push(expr),
+                Err(err) => ctx.errors.push(err),
+            }
         }
+        self.errors.append(&mut ctx.errors);
         Ok(Expr::Block { stmts })
     }
 
@@ -121,18 +142,17 @@ impl AnalyserCtx<'_> {
             Some(node) => {
                 let expr = self.visit(node)?;
                 if *expr.get_return() != typedef {
-                    error(
+                    self.err(
                         "if and else arms need to return the same value",
                         node.get_span(),
                     )
-                } else {
-                    Ok(Expr::If {
-                        cond: Box::new(cond_expr),
-                        then: Box::new(then_expr),
-                        or: Some(Box::new(expr)),
-                        typedef,
-                    })
                 }
+                Ok(Expr::If {
+                    cond: Box::new(cond_expr),
+                    then: Box::new(then_expr),
+                    or: Some(Box::new(expr)),
+                    typedef,
+                })
             }
             None => Ok(Expr::If {
                 cond: Box::new(cond_expr),
@@ -152,15 +172,14 @@ impl AnalyserCtx<'_> {
         // create function scope
         let mut ctx = AnalyserCtx::new();
         for arg in args {
-            ctx.set(&arg.0, arg.1.clone()).or(Err(SyntaxErr {
-                message: "argument already exists".to_owned(),
-                source: typedef.1.clone(),
-            }))?;
+            if ctx.set(&arg.0, arg.1.clone()).is_err() {
+                self.err("argument already exists", &typedef.1)
+            }
         }
         // validate expression
         let expr = ctx.visit(&block)?;
         if expr.get_return().as_ref() != returns.as_ref() {
-            return error("function block has invalid return type", block.get_span());
+            self.err("function block has invalid return type", block.get_span());
         }
 
         Ok(Expr::Fn {
@@ -186,7 +205,7 @@ impl AnalyserCtx<'_> {
                 right,
                 span: _,
             } => self.visit_binary(op, left, right),
-            _ => panic!("invalid expression"),
+            _ => error("invalid expression", node.get_span()),
         }
     }
 
@@ -199,17 +218,16 @@ impl AnalyserCtx<'_> {
                 expr: Box::new(expr),
                 typedef: Type::Bool,
             }),
-            Token::Minus => match expr.get_return().as_ref() {
-                Type::Number => Ok(Expr::Unary {
+            Token::Minus => {
+                if *expr.get_return() != Type::Number {
+                    self.err("minus can only be applyed to numbers", &op.1)
+                }
+                Ok(Expr::Unary {
                     op: UnaryOp::Mins,
                     expr: Box::new(expr),
                     typedef: Type::Number,
-                }),
-                _ => Err(SyntaxErr {
-                    message: "minus can only be applyed to numbers".to_owned(),
-                    source: op.1.clone(),
-                }),
-            },
+                })
+            }
             _ => Err(SyntaxErr {
                 message: "invalid operator".to_owned(),
                 source: op.1.clone(),
@@ -226,29 +244,39 @@ impl AnalyserCtx<'_> {
         let left_expr = self.visit_expr(left)?;
         let right_expr = self.visit_expr(right)?;
 
-        fn check_math(op: BinaryOp, span: &Span, l: Expr, r: Expr) -> AnalyserResult {
+        fn check_math(
+            x: &mut AnalyserCtx,
+            op: BinaryOp,
+            span: &Span,
+            l: Expr,
+            r: Expr,
+        ) -> AnalyserResult {
             if *l.get_return() != Type::Number || *r.get_return() != Type::Number {
-                error("operator can only be used for numbers", span)
-            } else {
-                Ok(Expr::Binary {
-                    op,
-                    left: Box::new(l),
-                    right: Box::new(r),
-                    typedef: Type::Number,
-                })
+                x.err("operator can only be used for numbers", span)
             }
+            Ok(Expr::Binary {
+                op,
+                left: Box::new(l),
+                right: Box::new(r),
+                typedef: Type::Number,
+            })
         }
-        fn check_compare(op: BinaryOp, span: &Span, l: Expr, r: Expr) -> AnalyserResult {
+        fn check_compare(
+            x: &mut AnalyserCtx,
+            op: BinaryOp,
+            span: &Span,
+            l: Expr,
+            r: Expr,
+        ) -> AnalyserResult {
             if l.get_return() != r.get_return() {
-                error("can only compare same types", span)
-            } else {
-                Ok(Expr::Binary {
-                    op,
-                    left: Box::new(l),
-                    right: Box::new(r),
-                    typedef: Type::Bool,
-                })
+                x.err("can only compare same types", span)
             }
+            Ok(Expr::Binary {
+                op,
+                left: Box::new(l),
+                right: Box::new(r),
+                typedef: Type::Bool,
+            })
         }
         match op.0 {
             Token::Plus => match left_expr.get_return().as_ref() {
@@ -258,19 +286,23 @@ impl AnalyserCtx<'_> {
                     right: Box::new(right_expr),
                     typedef: Type::String,
                 }),
-                _ => check_math(BinaryOp::Plus, &op.1, left_expr, right_expr),
+                _ => check_math(self, BinaryOp::Plus, &op.1, left_expr, right_expr),
             },
-            Token::Minus => check_math(BinaryOp::Minus, &op.1, left_expr, right_expr),
-            Token::Star => check_math(BinaryOp::Mul, &op.1, left_expr, right_expr),
-            Token::Slash => check_math(BinaryOp::Div, &op.1, left_expr, right_expr),
-            Token::BangEqual => check_compare(BinaryOp::NotEqual, &op.1, left_expr, right_expr),
-            Token::EqualEqual => check_compare(BinaryOp::Equal, &op.1, left_expr, right_expr),
-            Token::Greater => check_compare(BinaryOp::Greater, &op.1, left_expr, right_expr),
-            Token::GreaterEqual => {
-                check_compare(BinaryOp::GreaterEqual, &op.1, left_expr, right_expr)
+            Token::Minus => check_math(self, BinaryOp::Minus, &op.1, left_expr, right_expr),
+            Token::Star => check_math(self, BinaryOp::Mul, &op.1, left_expr, right_expr),
+            Token::Slash => check_math(self, BinaryOp::Div, &op.1, left_expr, right_expr),
+            Token::BangEqual => {
+                check_compare(self, BinaryOp::NotEqual, &op.1, left_expr, right_expr)
             }
-            Token::Less => check_compare(BinaryOp::Less, &op.1, left_expr, right_expr),
-            Token::LessEqual => check_compare(BinaryOp::LessEqual, &op.1, left_expr, right_expr),
+            Token::EqualEqual => check_compare(self, BinaryOp::Equal, &op.1, left_expr, right_expr),
+            Token::Greater => check_compare(self, BinaryOp::Greater, &op.1, left_expr, right_expr),
+            Token::GreaterEqual => {
+                check_compare(self, BinaryOp::GreaterEqual, &op.1, left_expr, right_expr)
+            }
+            Token::Less => check_compare(self, BinaryOp::Less, &op.1, left_expr, right_expr),
+            Token::LessEqual => {
+                check_compare(self, BinaryOp::LessEqual, &op.1, left_expr, right_expr)
+            }
             _ => error("invalid operator", &op.1),
         }
     }
@@ -317,7 +349,7 @@ impl AnalyserCtx<'_> {
                 node => self.visit(node)?,
             };
             if *arg_expr.get_return() != arg_type.1 {
-                return error("invalid arg type", arg.get_span());
+                self.err("invalid arg type", arg.get_span());
             }
             epxr_args.push(arg_expr);
         }
