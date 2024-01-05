@@ -38,12 +38,12 @@ impl ExecCtx<'_> {
         }
     }
     fn get(&self, key: &str) -> Value {
-        if self.state.contains_key(key) {
-            return self.state.get(key).unwrap().clone();
-        }
-        match self.enclosing {
-            Some(e) => e.get(key),
-            None => Value::Void,
+        match self.state.get(key) {
+            Some(val) => val.to_owned(),
+            None => match self.enclosing {
+                Some(parent) => parent.get(key),
+                None => Value::Void,
+            },
         }
     }
     fn set(&mut self, key: &str, val: Value) -> Result<(), &'static str> {

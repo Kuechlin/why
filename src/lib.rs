@@ -52,7 +52,7 @@ fn eval(value: &str) -> Result<Value, SyntaxErr> {
 
     let stmts = AnalyserCtx::new().analyse(&nodes)?;
 
-    ExecCtx::new().execute(&stmts).or_else(|x| {
+    ExecCtx::new().execute(&stmts).map(|x| x).or_else(|x| {
         Err(SyntaxErr {
             message: x.message,
             source: 0..value.len(),
