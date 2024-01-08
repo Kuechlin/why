@@ -1,32 +1,6 @@
 use std::fmt::Display;
 
-use super::exprs::Expr;
-
-#[derive(PartialEq, Clone)]
-pub enum Type {
-    Number,
-    String,
-    Bool,
-    Fn {
-        args: Vec<(String, Type)>,
-        returns: Box<Type>,
-    },
-    Void,
-}
-impl Type {
-    pub fn get_default(&self) -> Value {
-        match self {
-            Type::Number => Value::Number(0.0),
-            Type::String => Value::String("".to_owned()),
-            Type::Bool => Value::Bool(false),
-            Type::Fn { args: _, returns } => Value::Fn {
-                typedef: self.clone(),
-                expr: Box::new(Expr::Literal(returns.get_default())),
-            },
-            Type::Void => Value::Void,
-        }
-    }
-}
+use super::exprs::{Expr, Type};
 
 #[derive(Clone, PartialEq)]
 pub enum Value {
@@ -75,10 +49,22 @@ impl PartialOrd for Value {
 impl Display for Type {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let val = match self {
-            Type::Number => "number",
-            Type::String => "string",
-            Type::Bool => "boolean",
+            Type::Number => "Num",
+            Type::String => "Str",
+            Type::Bool => "Bool",
             Type::Void => "_",
+            Type::Def(val) => val,
+            Type::Or(types) => {
+                return write!(
+                    f,
+                    "({})",
+                    types
+                        .iter()
+                        .map(|x| format!("{}", x))
+                        .collect::<Vec<String>>()
+                        .join(" | ")
+                )
+            }
             Type::Fn { args, returns } => {
                 let mut list = args
                     .iter()
@@ -89,7 +75,7 @@ impl Display for Type {
                 if !list.is_empty() {
                     list += " ";
                 }
-                return write!(f, "fn {list}-> {returns}");
+                return write!(f, "fn {list}-> {}", returns);
             }
         };
         write!(f, "{val}")

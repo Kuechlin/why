@@ -1,46 +1,65 @@
-use std::{borrow::Cow, fmt::Display};
+use std::fmt::Display;
 
-use super::values::{Type, Value};
+use super::{values::Value, Span, Spanned};
+
+#[derive(PartialEq, Clone)]
+pub enum Type {
+    Number,
+    String,
+    Bool,
+    Fn {
+        args: Vec<(String, Type)>,
+        returns: Box<Type>,
+    },
+    Or(Vec<Self>),
+    Def(String),
+    Void,
+}
 
 #[derive(Clone, PartialEq)]
 pub enum Expr {
-    Var {
-        name: String,
-        typedef: Type,
-    },
-    Literal(Value),
+    Literal(Spanned<Value>),
+    Var(Spanned<String>),
     Unary {
-        op: UnaryOp,
+        op: Spanned<UnaryOp>,
         expr: Box<Self>,
-        typedef: Type,
+        span: Span,
     },
     Binary {
-        op: BinaryOp,
+        op: Spanned<BinaryOp>,
         left: Box<Self>,
         right: Box<Self>,
-        typedef: Type,
+        span: Span,
     },
     Block {
         stmts: Vec<Self>,
+        span: Span,
     },
     Let {
-        name: String,
+        name: Spanned<String>,
         expr: Box<Self>,
+        span: Span,
     },
     If {
         cond: Box<Self>,
         then: Box<Self>,
         or: Option<Box<Self>>,
-        typedef: Type,
+        span: Span,
     },
     Fn {
+        typedef: Spanned<Type>,
         block: Box<Self>,
-        typedef: Type,
+        span: Span,
     },
     Call {
-        name: String,
+        name: Spanned<String>,
         args: Vec<Self>,
-        typedef: Type,
+        span: Span,
+    },
+    Def {
+        name: Spanned<String>,
+        typedef: Spanned<Type>,
+        span: Span,
     },
 }
 
@@ -61,42 +80,91 @@ pub enum BinaryOp {
 #[derive(Clone, Copy, PartialEq)]
 pub enum UnaryOp {
     Bang,
-    Mins,
+    Minus,
 }
 
 impl Expr {
-    pub fn get_return(&self) -> Cow<'_, Type> {
+    pub fn get_span(&self) -> &Span {
         match self {
-            Expr::Var { name: _, typedef } => Cow::Borrowed(typedef),
-            Expr::Literal(val) => Cow::Owned(val.get_type()),
+            Expr::Literal(x) => &x.1,
+            Expr::Var(x) => &x.1,
             Expr::Unary {
                 op: _,
                 expr: _,
-                typedef,
-            } => Cow::Borrowed(typedef),
+                span,
+            } => span,
             Expr::Binary {
                 op: _,
                 left: _,
                 right: _,
-                typedef,
-            } => Cow::Borrowed(typedef),
-            Expr::Block { stmts } => match stmts.last() {
-                Some(expr) => expr.get_return(),
-                None => Cow::Owned(Type::Void),
-            },
-            Expr::Let { name: _, expr } => expr.get_return(),
+                span,
+            } => span,
+            Expr::Block { stmts: _, span } => span,
+            Expr::Let {
+                name: _,
+                expr: _,
+                span,
+            } => span,
             Expr::If {
                 cond: _,
                 then: _,
                 or: _,
-                typedef,
-            } => Cow::Borrowed(typedef),
+                span,
+            } => span,
+            Expr::Fn {
+                typedef: _,
+                block: _,
+                span,
+            } => span,
             Expr::Call {
                 name: _,
                 args: _,
-                typedef,
-            } => Cow::Borrowed(typedef),
-            Expr::Fn { block: _, typedef } => Cow::Borrowed(typedef),
+                span,
+            } => span,
+            Expr::Def {
+                name: _,
+                typedef: _,
+                span,
+            } => span,
+        }
+    }
+}
+
+impl Type {
+    pub fn combine(&self, other: &Self) -> Type {
+        match (self, other) {
+            (Type::Or(left), Type::Or(right)) => {
+                let mut types = left.clone();
+                types.append(&mut right.clone());
+                Type::Or(types)
+            }
+            (left, Type::Or(right)) => {
+                let mut types = right.clone();
+                types.push(left.clone());
+                Type::Or(types)
+            }
+            (Type::Or(left), right) => {
+                let mut types = left.clone();
+                types.push(right.clone());
+                Type::Or(types)
+            }
+            (left, right) => Type::Or(vec![left.clone(), right.clone()]),
+        }
+    }
+
+    pub fn includes(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Type::Or(left), Type::Or(right)) => {
+                for r in right {
+                    if !left.contains(r) {
+                        return false;
+                    }
+                }
+                true
+            }
+            (_, Type::Or(_)) => false,
+            (Type::Or(left), right) => left.contains(right),
+            (left, right) => *left == *right,
         }
     }
 }
@@ -129,7 +197,7 @@ impl Display for UnaryOp {
             "{}",
             match self {
                 UnaryOp::Bang => "!",
-                UnaryOp::Mins => "-",
+                UnaryOp::Minus => "-",
             }
         )
     }
@@ -138,20 +206,16 @@ impl Display for UnaryOp {
 impl Display for Expr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Expr::Var { name, typedef: _ } => write!(f, "{name}"),
-            Expr::Literal(val) => write!(f, "{}", val.to_string()),
-            Expr::Unary {
-                op,
-                expr,
-                typedef: _,
-            } => write!(f, "{op}{expr}"),
+            Expr::Var(name) => write!(f, "{}", name.0),
+            Expr::Literal(val) => write!(f, "{}", val.0.to_string()),
+            Expr::Unary { op, expr, span: _ } => write!(f, "{}{expr}", op.0),
             Expr::Binary {
                 op,
                 left,
                 right,
-                typedef: _,
-            } => write!(f, "{left} {op} {right}"),
-            Expr::Block { stmts } => {
+                span: _,
+            } => write!(f, "{left} {} {right}", op.0),
+            Expr::Block { stmts, span: _ } => {
                 let list = stmts
                     .iter()
                     .map(|s| format!("\t{s}"))
@@ -159,31 +223,44 @@ impl Display for Expr {
                     .join("\n");
                 write!(f, "{{\n{list}\n}}")
             }
-            Expr::Let { name, expr } => {
-                write!(f, "let {name}: {} = {expr};", expr.get_return())
+            Expr::Let {
+                name,
+                expr,
+                span: _,
+            } => {
+                write!(f, "let {} = {expr};", name.0)
             }
             Expr::If {
                 cond,
                 then,
                 or,
-                typedef: _,
+                span: _,
             } => match or {
                 None => write!(f, "if {cond} {then}"),
                 Some(x) => write!(f, "if {cond} {then} else {x}"),
             },
-            Expr::Fn { block, typedef } => write!(f, "{typedef} {block}"),
+            Expr::Fn {
+                block,
+                typedef,
+                span: _,
+            } => write!(f, "{} {block}", typedef.0),
             Expr::Call {
                 name,
                 args,
-                typedef: _,
+                span: _,
             } => {
                 let list = args
                     .iter()
                     .map(|x| format!("{x}"))
                     .collect::<Vec<String>>()
                     .join(", ");
-                write!(f, "{name}({list})")
+                write!(f, "{}({list})", name.0)
             }
+            Expr::Def {
+                name,
+                typedef,
+                span: _,
+            } => write!(f, "def {}: {}", name.0, typedef.0),
         }
     }
 }

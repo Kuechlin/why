@@ -29,6 +29,7 @@ statement[@isGroup=Statement] {
   If |
   Is |
   Let |
+  Def |
   Fn |
   Block |
   Expr { expression semi } |
@@ -41,6 +42,10 @@ Block {
 
 If {
   kw<"if"> statement Block (kw<"else"> (If | Block))?
+}
+
+Def {
+  kw<"def"> TypeIdentifier ":" type semi
 }
 
 Is {
@@ -65,10 +70,9 @@ ParamList {
 
 
 type[@isGroup=Type] {
-  Str { "str" } |
-  Num { "num" } |
-  Bool { "bool" } |
-  Func { "(" "fn" ":" type "->" type ")" }
+  Func { "(" "fn" ":" type "->" type ")" } |
+  Or { "(" type ("|" type)* ")" } |
+  TypeIdentifier
 }
 
 expression[@isGroup=Expression] {
@@ -99,7 +103,8 @@ ArgList {
 }
 
 @tokens {
-  Identifier { (@asciiLetter | "_") (@asciiLetter | @digit)* }
+  Identifier { ($[a-z_]) (@asciiLetter | @digit | "_")* }
+  TypeIdentifier { ($[A-Z]) (@asciiLetter | @digit  | "_")* }
 
   Number { $[0-9]+ }
 

@@ -1,26 +1,15 @@
-use std::collections::HashMap;
+use std::{borrow::Cow, collections::HashMap};
 
 use crate::types::{
+    exprs::Type,
     exprs::{BinaryOp, Expr, UnaryOp},
-    nodes::Node,
-    tokens::Token,
-    values::Type,
     Span, Spanned, SyntaxErr,
 };
-
-type AnalyserResult = Result<Expr, SyntaxErr>;
 
 pub struct AnalyserCtx<'a> {
     pub enclosing: Option<&'a AnalyserCtx<'a>>,
     pub state: HashMap<String, Type>,
     pub errors: Vec<SyntaxErr>,
-}
-
-fn error(msg: &str, span: &Span) -> AnalyserResult {
-    Err(SyntaxErr {
-        message: msg.to_owned(),
-        source: span.clone(),
-    })
 }
 
 impl AnalyserCtx<'_> {
@@ -31,17 +20,13 @@ impl AnalyserCtx<'_> {
             errors: Vec::new(),
         }
     }
-    pub fn analyse(&mut self, nodes: &[Node]) -> Result<Vec<Expr>, &Vec<SyntaxErr>> {
-        let mut stmts = Vec::new();
-        for node in nodes {
-            match self.visit(node) {
-                Ok(expr) => stmts.push(expr),
-                Err(err) => self.errors.push(err),
-            }
+    pub fn analyse(&mut self, stmts: &[Expr]) -> Result<(), &Vec<SyntaxErr>> {
+        for stmt in stmts {
+            self.visit(stmt);
         }
         let has_err = self.errors.len() == 0;
         if has_err {
-            Ok(stmts)
+            Ok(())
         } else {
             Err(&self.errors)
         }
@@ -54,9 +39,9 @@ impl AnalyserCtx<'_> {
             errors: Vec::new(),
         }
     }
-    fn get(&self, key: &str) -> Option<&Type> {
+    fn get(&self, key: &str) -> Option<Type> {
         if self.state.contains_key(key) {
-            return Some(self.state.get(key).unwrap());
+            return Some(self.state.get(key).unwrap().clone());
         }
         if self.enclosing.is_some() {
             return self.enclosing.unwrap().get(key);
@@ -78,95 +63,192 @@ impl AnalyserCtx<'_> {
         })
     }
 
+    fn is_returnt_type(&mut self, expr: &Expr, typedef: Type) -> bool {
+        *self.get_return_type(expr) == typedef
+    }
+    fn get_return_type(&mut self, expr: &Expr) -> Cow<'_, Type> {
+        match expr {
+            Expr::Var(name) => match self.get(&name.0) {
+                Some(val) => self.resolve_def_type(&val, &name.1),
+                None => {
+                    self.err("variable is not defined", &name.1);
+                    Cow::Owned(Type::Void)
+                }
+            },
+            Expr::Call {
+                name,
+                args: _,
+                span: _,
+            } => match self.get(&name.0) {
+                Some(Type::Fn { args: _, returns }) => {
+                    self.resolve_def_type(returns.as_ref(), &name.1)
+                }
+                _ => {
+                    self.err("function is not defined", &name.1);
+                    Cow::Owned(Type::Void)
+                }
+            },
+            Expr::Literal(val) => self.resolve_def_type(&val.0.get_type(), &val.1),
+            Expr::Unary {
+                op,
+                expr: _,
+                span: _,
+            } => Cow::Owned(match op.0 {
+                UnaryOp::Bang => Type::Bool,
+                UnaryOp::Minus => Type::Number,
+            }),
+            Expr::Binary {
+                op,
+                left,
+                right: _,
+                span: _,
+            } => match op.0 {
+                BinaryOp::Plus => match self.is_returnt_type(left, Type::String) {
+                    true => Cow::Owned(Type::String),
+                    false => Cow::Owned(Type::Number),
+                },
+                BinaryOp::Minus | BinaryOp::Mul | BinaryOp::Div => Cow::Owned(Type::Number),
+                _ => Cow::Owned(Type::Bool),
+            },
+            Expr::Block { stmts, span: _ } => match stmts.last() {
+                Some(expr) => self.get_return_type(expr),
+                None => Cow::Owned(Type::Void),
+            },
+            Expr::If {
+                cond: _,
+                then,
+                or,
+                span: _,
+            } => match or {
+                None => self.get_return_type(then),
+                Some(or) => {
+                    let then_type = self.get_return_type(then).into_owned();
+                    let or_type = self.get_return_type(or).into_owned();
+                    Cow::Owned(then_type.combine(&or_type))
+                }
+            },
+            Expr::Fn {
+                block: _,
+                typedef,
+                span: _,
+            } => self.resolve_def_type(&typedef.0, &typedef.1),
+            Expr::Let {
+                name: _,
+                expr: _,
+                span: _,
+            } => Cow::Owned(Type::Void),
+            Expr::Def {
+                name: _,
+                typedef: _,
+                span: _,
+            } => Cow::Owned(Type::Void),
+        }
+    }
+
+    fn resolve_def_type(&mut self, typedef: &Type, span: &Span) -> Cow<'_, Type> {
+        match typedef {
+            Type::Def(name) => match self.get(name) {
+                Some(typedef) => self.resolve_def_type(&typedef, span),
+                None => {
+                    self.err(format!("type {} is not defined", name).as_str(), span);
+                    Cow::Owned(Type::Void)
+                }
+            },
+            Type::Or(types) => Cow::Owned(Type::Or(
+                types
+                    .iter()
+                    .map(|t| self.resolve_def_type(t, span).into_owned())
+                    .collect(),
+            )),
+            Type::Fn { args, returns } => Cow::Owned(Type::Fn {
+                args: args
+                    .iter()
+                    .map(|t| (t.0.clone(), self.resolve_def_type(&t.1, span).into_owned()))
+                    .collect(),
+                returns: Box::new(self.resolve_def_type(&returns, span).into_owned()),
+            }),
+            _ => Cow::Owned(typedef.clone()),
+        }
+    }
+
     // statements
-    fn visit(&mut self, node: &Node) -> AnalyserResult {
-        match node {
-            Node::Block { nodes, span: _ } => self.visit_block(nodes),
-            Node::Let {
+    fn visit(&mut self, expr: &Expr) {
+        match expr {
+            Expr::Block {
+                stmts: exprs,
+                span: _,
+            } => self.visit_block(exprs),
+            Expr::Let {
                 name,
                 expr,
                 span: _,
             } => self.visit_let(name, expr),
-            Node::If {
+            Expr::Def {
+                name,
+                typedef,
+                span: _,
+            } => self.visit_def(name, typedef),
+            Expr::If {
                 cond,
                 then,
                 or,
                 span: _,
             } => self.visit_if(cond, then, or),
-            Node::Fn {
+            Expr::Fn {
                 typedef,
                 block,
                 span: _,
             } => self.visit_fn(typedef, block),
-            _ => Ok(self.visit_expr(node)?),
+            _ => self.visit_expr(expr),
         }
     }
 
-    fn visit_block(&mut self, nodes: &Vec<Node>) -> AnalyserResult {
+    fn visit_block(&mut self, exprs: &Vec<Expr>) {
         let mut ctx = self.derive();
-        let mut stmts = Vec::new();
-        for node in nodes {
-            match ctx.visit(node) {
-                Ok(expr) => stmts.push(expr),
-                Err(err) => ctx.errors.push(err),
-            }
+        for expr in exprs {
+            ctx.visit(expr);
         }
         self.errors.append(&mut ctx.errors);
-        Ok(Expr::Block { stmts })
     }
 
-    fn visit_let(&mut self, name: &Spanned<String>, node: &Box<Node>) -> AnalyserResult {
-        let expr = self.visit(node)?;
-        let typedef = expr.get_return();
+    fn visit_let(&mut self, name: &Spanned<String>, expr: &Box<Expr>) {
+        self.visit(expr);
+        let typedef = self.get_return_type(&expr).into_owned();
 
-        match self.set(&name.0, typedef.into_owned()) {
-            Ok(_) => Ok(Expr::Let {
-                name: name.0.to_owned(),
-                expr: Box::new(expr),
-            }),
-            Err(err) => error(err, &name.1),
+        let res = self.set(&name.0, typedef);
+        if res.is_err() {
+            self.err(res.unwrap_err(), &name.1);
         }
     }
 
-    fn visit_if(
-        &mut self,
-        cond: &Box<Node>,
-        then: &Box<Node>,
-        or: &Option<Box<Node>>,
-    ) -> AnalyserResult {
-        let cond_expr = self.visit_expr(cond)?;
-        let then_expr = self.visit(then)?;
-        let typedef = then_expr.get_return().into_owned();
+    fn visit_def(&mut self, name: &Spanned<String>, typedef: &Spanned<Type>) {
+        let res = self.set(&name.0, typedef.0.clone());
+        if res.is_err() {
+            self.err(res.unwrap_err(), &name.1);
+        }
+    }
+
+    fn visit_if(&mut self, cond: &Box<Expr>, then: &Box<Expr>, or: &Option<Box<Expr>>) {
+        self.visit_expr(cond);
+        self.visit(then);
 
         match or {
-            Some(node) => {
-                let expr = self.visit(node)?;
-                if *expr.get_return() != typedef {
-                    self.err(
-                        "if and else arms need to return the same value",
-                        node.get_span(),
-                    )
-                }
-                Ok(Expr::If {
-                    cond: Box::new(cond_expr),
-                    then: Box::new(then_expr),
-                    or: Some(Box::new(expr)),
-                    typedef,
-                })
-            }
-            None => Ok(Expr::If {
-                cond: Box::new(cond_expr),
-                then: Box::new(then_expr),
-                or: None,
-                typedef,
-            }),
+            Some(expr) => self.visit(expr.as_ref()),
+            None => (),
         }
     }
 
-    fn visit_fn(&mut self, typedef: &Spanned<Type>, block: &Box<Node>) -> AnalyserResult {
-        let (args, returns) = match &typedef.0 {
+    fn visit_fn(&mut self, typedef: &Spanned<Type>, block: &Box<Expr>) {
+        let fn_type = self.resolve_def_type(&typedef.0, &typedef.1).into_owned();
+        let (args, return_type) = match fn_type {
             Type::Fn { args, returns } => (args, returns),
-            _ => return error("invalid function type", &typedef.1),
+            _ => {
+                self.err(
+                    format!("expected function type, found {}", fn_type).as_str(),
+                    &typedef.1,
+                );
+                return;
+            }
         };
 
         // create function scope
@@ -177,187 +259,138 @@ impl AnalyserCtx<'_> {
             }
         }
         // validate expression
-        let expr = ctx.visit(&block)?;
-        if expr.get_return().as_ref() != returns.as_ref() {
-            self.err("function block has invalid return type", block.get_span());
+        ctx.visit(&block);
+        let expr_return = ctx.get_return_type(&block);
+        if !return_type.includes(&expr_return) {
+            self.err(
+                format!(
+                    "function block has invalid return type:\nexpected: {}\nfound {}",
+                    return_type.as_ref(),
+                    expr_return.as_ref()
+                )
+                .as_str(),
+                block.get_span(),
+            );
         }
-
-        Ok(Expr::Fn {
-            block: Box::new(expr),
-            typedef: typedef.0.clone(),
-        })
     }
 
     // expression
-    fn visit_expr(&mut self, node: &Node) -> AnalyserResult {
-        match node {
-            Node::Literal(val) => Ok(Expr::Literal(val.0.clone())),
-            Node::Identifier(name) => self.visit_identifier(name),
-            Node::Call {
+    fn visit_expr(&mut self, expr: &Expr) {
+        match expr {
+            Expr::Literal(_) => (),
+            Expr::Var(name) => self.visit_identifier(name),
+            Expr::Call {
                 name,
                 args,
                 span: _,
             } => self.visit_call(name, args),
-            Node::Unary { op, node, span: _ } => self.visit_unary(op, node),
-            Node::Binary {
+            Expr::Unary { op, expr, span: _ } => self.visit_unary(op, expr),
+            Expr::Binary {
                 op,
                 left,
                 right,
                 span: _,
             } => self.visit_binary(op, left, right),
-            _ => error("invalid expression", node.get_span()),
+            _ => self.err("invalid expression", expr.get_span()),
         }
     }
 
-    fn visit_unary(&mut self, op: &Spanned<Token>, node: &Box<Node>) -> AnalyserResult {
-        let expr = self.visit_expr(node)?;
+    fn visit_unary(&mut self, op: &Spanned<UnaryOp>, expr: &Box<Expr>) {
+        self.visit_expr(expr);
 
         match op.0 {
-            Token::Bang => Ok(Expr::Unary {
-                op: UnaryOp::Bang,
-                expr: Box::new(expr),
-                typedef: Type::Bool,
-            }),
-            Token::Minus => {
-                if *expr.get_return() != Type::Number {
+            UnaryOp::Bang => (),
+            UnaryOp::Minus => {
+                if !self.is_returnt_type(expr, Type::Number) {
                     self.err("minus can only be applyed to numbers", &op.1)
                 }
-                Ok(Expr::Unary {
-                    op: UnaryOp::Mins,
-                    expr: Box::new(expr),
-                    typedef: Type::Number,
-                })
             }
-            _ => Err(SyntaxErr {
-                message: "invalid operator".to_owned(),
-                source: op.1.clone(),
-            }),
         }
     }
 
-    fn visit_binary(
-        &mut self,
-        op: &Spanned<Token>,
-        left: &Box<Node>,
-        right: &Box<Node>,
-    ) -> AnalyserResult {
-        let left_expr = self.visit_expr(left)?;
-        let right_expr = self.visit_expr(right)?;
+    fn visit_binary(&mut self, op: &Spanned<BinaryOp>, left: &Box<Expr>, right: &Box<Expr>) {
+        self.visit_expr(left);
+        self.visit_expr(right);
 
-        fn check_math(
-            x: &mut AnalyserCtx,
-            op: BinaryOp,
-            span: &Span,
-            l: Expr,
-            r: Expr,
-        ) -> AnalyserResult {
-            if *l.get_return() != Type::Number || *r.get_return() != Type::Number {
+        fn check_math(x: &mut AnalyserCtx, span: &Span, l: &Expr, r: &Expr) {
+            if !x.is_returnt_type(l, Type::Number) || !x.is_returnt_type(r, Type::Number) {
                 x.err("operator can only be used for numbers", span)
             }
-            Ok(Expr::Binary {
-                op,
-                left: Box::new(l),
-                right: Box::new(r),
-                typedef: Type::Number,
-            })
         }
-        fn check_compare(
-            x: &mut AnalyserCtx,
-            op: BinaryOp,
-            span: &Span,
-            l: Expr,
-            r: Expr,
-        ) -> AnalyserResult {
-            if l.get_return() != r.get_return() {
-                x.err("can only compare same types", span)
-            }
-            Ok(Expr::Binary {
-                op,
-                left: Box::new(l),
-                right: Box::new(r),
-                typedef: Type::Bool,
-            })
-        }
+
         match op.0 {
-            Token::Plus => match left_expr.get_return().as_ref() {
-                Type::String => Ok(Expr::Binary {
-                    op: BinaryOp::Plus,
-                    left: Box::new(left_expr),
-                    right: Box::new(right_expr),
-                    typedef: Type::String,
-                }),
-                _ => check_math(self, BinaryOp::Plus, &op.1, left_expr, right_expr),
+            BinaryOp::Plus => match self.get_return_type(left).as_ref() {
+                Type::String => (),
+                _ => check_math(self, &op.1, left, right),
             },
-            Token::Minus => check_math(self, BinaryOp::Minus, &op.1, left_expr, right_expr),
-            Token::Star => check_math(self, BinaryOp::Mul, &op.1, left_expr, right_expr),
-            Token::Slash => check_math(self, BinaryOp::Div, &op.1, left_expr, right_expr),
-            Token::BangEqual => {
-                check_compare(self, BinaryOp::NotEqual, &op.1, left_expr, right_expr)
+            BinaryOp::Minus | BinaryOp::Mul | BinaryOp::Div => check_math(self, &op.1, left, right),
+            BinaryOp::NotEqual
+            | BinaryOp::Equal
+            | BinaryOp::Greater
+            | BinaryOp::GreaterEqual
+            | BinaryOp::Less
+            | BinaryOp::LessEqual => {
+                if self.get_return_type(left).into_owned()
+                    != self.get_return_type(right).into_owned()
+                {
+                    self.err("can only compare same types", &op.1)
+                }
             }
-            Token::EqualEqual => check_compare(self, BinaryOp::Equal, &op.1, left_expr, right_expr),
-            Token::Greater => check_compare(self, BinaryOp::Greater, &op.1, left_expr, right_expr),
-            Token::GreaterEqual => {
-                check_compare(self, BinaryOp::GreaterEqual, &op.1, left_expr, right_expr)
-            }
-            Token::Less => check_compare(self, BinaryOp::Less, &op.1, left_expr, right_expr),
-            Token::LessEqual => {
-                check_compare(self, BinaryOp::LessEqual, &op.1, left_expr, right_expr)
-            }
-            _ => error("invalid operator", &op.1),
         }
     }
 
-    fn visit_identifier(&self, name: &Spanned<String>) -> AnalyserResult {
-        Ok(Expr::Var {
-            name: name.0.to_owned(),
-            typedef: match self.get(&name.0) {
-                Some(t) => t.clone(),
-                None => return error("variable not defined", &name.1),
-            },
-        })
+    fn visit_identifier(&mut self, name: &Spanned<String>) {
+        if self.get(&name.0).is_none() {
+            self.err("variable not defined", &name.1);
+        }
     }
 
-    fn visit_call(&mut self, name: &Spanned<String>, args: &Vec<Node>) -> AnalyserResult {
-        let (arg_types, return_type) = match self.get(&name.0) {
+    fn visit_call(&mut self, name: &Spanned<String>, args: &Vec<Expr>) {
+        let arg_types = match self.get(&name.0) {
             Some(t) => match t {
-                Type::Fn { args, returns } => (args.clone(), returns.as_ref().to_owned()),
-                _ => return error(format!("{} is not a function", &name.0).as_str(), &name.1),
+                Type::Fn { args, returns: _ } => args,
+                _ => {
+                    self.err(format!("{} is not a function", &name.0).as_str(), &name.1);
+                    return;
+                }
             },
-            None => return error("function not defined", &name.1),
+            None => {
+                self.err("function not defined", &name.1);
+                return;
+            }
         };
 
-        let mut epxr_args = Vec::new();
-        for (i, arg_type) in arg_types.iter().enumerate() {
+        for (i, (arg_name, arg_type)) in arg_types.iter().enumerate() {
             let arg = match args.get(i) {
-                Some(node) => node,
-                None => return error(format!("missing fn arg {}", &arg_type.0).as_str(), &name.1),
+                Some(expr) => expr,
+                None => {
+                    self.err(format!("missing fn arg {}", &arg_name).as_str(), &name.1);
+                    continue;
+                }
             };
             // if arg is function use defined type
-            let arg_expr = match arg {
-                Node::Fn {
+            match arg {
+                Expr::Fn {
                     typedef: _,
                     block,
                     span,
                 } => {
-                    let node = Node::Fn {
-                        typedef: (arg_type.1.clone(), span.start..span.start + 2),
+                    self.visit(&Expr::Fn {
+                        typedef: (arg_type.clone(), span.clone()),
                         block: block.clone(),
                         span: span.clone(),
-                    };
-                    self.visit(&node)?
+                    });
                 }
-                node => self.visit(node)?,
+                expr => self.visit(expr),
             };
-            if *arg_expr.get_return() != arg_type.1 {
-                self.err("invalid arg type", arg.get_span());
+            let arg_return = self.get_return_type(arg).into_owned();
+            if !arg_type.includes(&arg_return) {
+                self.err(
+                    format!("invalid arg type\nexpected: {arg_type}\nfound: {arg_return}",)
+                        .as_str(),
+                    arg.get_span(),
+                );
             }
-            epxr_args.push(arg_expr);
         }
-
-        Ok(Expr::Call {
-            name: name.0.to_owned(),
-            args: epxr_args,
-            typedef: return_type,
-        })
     }
 }

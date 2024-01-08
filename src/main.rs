@@ -73,7 +73,7 @@ fn main() {
             }
         };
 
-        let nodes = match parser::parse(&tokens) {
+        let stmts = match parser::parse(&tokens) {
             Ok(e) => e,
             Err(err) => {
                 print_err(&buffer, &err);
@@ -81,8 +81,8 @@ fn main() {
             }
         };
 
-        let stmts = match analyser.analyse(&nodes) {
-            Ok(e) => e,
+        match analyser.analyse(&stmts) {
+            Ok(_) => (),
             Err(err) => {
                 for e in err {
                     print_err(&buffer, &e);

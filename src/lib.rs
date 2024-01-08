@@ -26,7 +26,7 @@ impl WhyErr {
 
 #[wasm_bindgen]
 pub fn analyse(value: &str) -> Vec<WhyErr> {
-    match eval(value) {
+    match check(value) {
         Ok(_) => Vec::new(),
         Err(err) => err
             .iter()
@@ -36,6 +36,23 @@ pub fn analyse(value: &str) -> Vec<WhyErr> {
                 end: e.source.end,
             })
             .collect(),
+    }
+}
+
+fn check(value: &str) -> Result<(), Vec<SyntaxErr>> {
+    let tokens = match lexer::scan(value) {
+        Ok(token) => token,
+        Err(err) => return Err(vec![err]),
+    };
+
+    let nodes = match parser::parse(&tokens) {
+        Ok(nodes) => nodes,
+        Err(err) => return Err(vec![err]),
+    };
+
+    match AnalyserCtx::new().analyse(&nodes) {
+        Ok(_) => Ok(()),
+        Err(err) => Err(err.to_vec()),
     }
 }
 
@@ -69,12 +86,12 @@ fn eval(value: &str) -> Result<Value, Vec<SyntaxErr>> {
         Err(err) => return Err(vec![err]),
     };
 
-    let nodes = match parser::parse(&tokens) {
+    let stmts = match parser::parse(&tokens) {
         Ok(nodes) => nodes,
         Err(err) => return Err(vec![err]),
     };
 
-    let stmts = match AnalyserCtx::new().analyse(&nodes) {
+    match AnalyserCtx::new().analyse(&stmts) {
         Ok(stmts) => stmts,
         Err(err) => return Err(err.to_vec()),
     };

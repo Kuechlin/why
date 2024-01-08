@@ -1,7 +1,11 @@
 use std::collections::HashMap;
 
 use crate::types::{
-    exprs::BinaryOp, exprs::Expr, exprs::UnaryOp, values::Type, values::Value, RuntimeErr,
+    exprs::BinaryOp,
+    exprs::UnaryOp,
+    exprs::{Expr, Type},
+    values::Value,
+    RuntimeErr,
 };
 
 type EvalResult = Result<Value, RuntimeErr>;
@@ -57,33 +61,42 @@ impl ExecCtx<'_> {
 
     pub fn eval(&mut self, input: &Expr) -> EvalResult {
         match input {
-            Expr::Block { stmts } => self.eval_block(stmts),
-            Expr::Let { name, expr } => self.eval_let(name, expr),
+            Expr::Block { stmts, span: _ } => self.eval_block(stmts),
+            Expr::Let {
+                name,
+                expr,
+                span: _,
+            } => self.eval_let(&name.0, expr),
             Expr::If {
                 cond,
                 then,
                 or,
-                typedef: _,
+                span: _,
             } => self.eval_if(cond, then, or),
-            Expr::Fn { block, typedef } => self.eval_fn(block, typedef),
-            Expr::Var { name, typedef: _ } => Ok(self.get(name)),
-            Expr::Literal(value) => Ok(value.clone()),
-            Expr::Unary {
-                op,
-                expr,
-                typedef: _,
-            } => self.eval_unary(op, expr),
+            Expr::Fn {
+                block,
+                typedef,
+                span: _,
+            } => self.eval_fn(block, &typedef.0),
+            Expr::Var(name) => Ok(self.get(&name.0)),
+            Expr::Literal(value) => Ok(value.0.clone()),
+            Expr::Unary { op, expr, span: _ } => self.eval_unary(&op.0, expr),
             Expr::Binary {
                 op,
                 left,
                 right,
-                typedef: _,
-            } => self.eval_binary(op, left, right),
+                span: _,
+            } => self.eval_binary(&op.0, left, right),
             Expr::Call {
                 name,
                 args,
+                span: _,
+            } => self.eval_call(&name.0, args),
+            Expr::Def {
+                name: _,
                 typedef: _,
-            } => self.eval_call(name, args),
+                span: _,
+            } => Ok(Value::Void),
         }
     }
 
@@ -140,10 +153,10 @@ impl ExecCtx<'_> {
 
         // create context and eval args
         let mut ctx = ExecCtx::new();
-        for (i, (name, arg_type)) in args_def.iter().enumerate() {
+        for (i, (name, _)) in args_def.iter().enumerate() {
             let arg = match args.get(i) {
                 Some(e) => self.eval(e)?,
-                None => arg_type.get_default(),
+                None => return error(format!("arg {name} is mission").as_str()),
             };
 
             match ctx.set(name, arg) {
@@ -161,7 +174,7 @@ impl ExecCtx<'_> {
 
         match op {
             UnaryOp::Bang => Ok(Value::Bool(!value.is_truthy())),
-            UnaryOp::Mins => match value {
+            UnaryOp::Minus => match value {
                 Value::Number(x) => Ok(Value::Number(-x)),
                 _ => error("invalid value"),
             },

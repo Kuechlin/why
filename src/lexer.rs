@@ -94,10 +94,17 @@ impl LexerCtx {
         match value.as_str() {
             "fn" => self.add(Token::Fn),
             "if" => self.add(Token::If),
+            "def" => self.add(Token::Def),
             "else" => self.add(Token::Else),
             "true" => self.add(Token::Bool(true)),
             "false" => self.add(Token::Bool(false)),
-            _ => self.add(Token::Identifier(value)),
+            _ => {
+                if value.chars().next().unwrap().is_ascii_uppercase() {
+                    self.add(Token::TypeIdentifier(value))
+                } else {
+                    self.add(Token::Identifier(value))
+                }
+            }
         }
     }
     fn get_next(&mut self) -> Result<(), SyntaxErr> {
@@ -128,6 +135,8 @@ impl LexerCtx {
             '=' => self.operator(Token::Equal, Token::EqualEqual),
             '>' => self.operator(Token::Greater, Token::GreaterEqual),
             '<' => self.operator(Token::Less, Token::LessEqual),
+            '|' => self.add(Token::Or),
+            '&' => self.add(Token::And),
             // string
             '"' => self.string()?,
             // ignore whitespace

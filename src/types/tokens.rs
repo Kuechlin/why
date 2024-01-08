@@ -16,6 +16,8 @@ pub enum Token {
     Slash,
     DotDot,
     Semicolon,
+    Or,
+    And,
 
     Bang,
     BangEqual,
@@ -27,6 +29,7 @@ pub enum Token {
     LessEqual,
 
     Identifier(String),
+    TypeIdentifier(String),
     String(String),
     Number(f64),
     Bool(bool),
@@ -34,4 +37,5 @@ pub enum Token {
     Fn,
     If,
     Else,
+    Def,
 }

@@ -1,8 +1,11 @@
 use crate::types::{
-    nodes::Node, tokens::Token, values::Type, values::Value, Span, Spanned, SyntaxErr,
+    exprs::{BinaryOp, Expr, Type, UnaryOp},
+    tokens::Token,
+    values::Value,
+    Span, Spanned, SyntaxErr,
 };
 
-type ParserResult = Result<Node, SyntaxErr>;
+type ParserResult = Result<Expr, SyntaxErr>;
 type TypeResult = Result<Spanned<Type>, SyntaxErr>;
 
 struct ParserCtx<'a> {
@@ -10,6 +13,12 @@ struct ParserCtx<'a> {
     current: usize,
 }
 
+fn err(msg: &'static str, span: &Span) -> SyntaxErr {
+    SyntaxErr {
+        message: msg.to_owned(),
+        source: span.clone(),
+    }
+}
 fn error(msg: &'static str, span: &Span) -> ParserResult {
     Err(SyntaxErr {
         message: msg.to_owned(),
@@ -56,7 +65,31 @@ impl ParserCtx<'_> {
 
     // statement
     fn statement(&mut self) -> ParserResult {
-        self.condition()
+        self.definition()
+    }
+
+    fn definition(&mut self) -> ParserResult {
+        let start = self.start();
+        if !self.is(&[Token::Def]) {
+            return self.condition();
+        }
+        let token = self.advance();
+        let name = match token.0 {
+            Token::TypeIdentifier(name) => name,
+            _ => return error("Type Identifier expected", &token.1),
+        };
+        if !self.is(&[Token::DotDot]) {
+            return error("Expect ':' after definition identifier", &self.current().1);
+        }
+        let typedef = self.typedef()?;
+        if !self.is(&[Token::Semicolon]) {
+            return error("Expect ';' after statement", &self.current().1);
+        }
+        Ok(Expr::Def {
+            name: (name, token.1),
+            typedef,
+            span: start..self.end(),
+        })
     }
 
     fn condition(&mut self) -> ParserResult {
@@ -75,7 +108,7 @@ impl ParserCtx<'_> {
             false => None,
         };
 
-        return Ok(Node::If {
+        return Ok(Expr::If {
             cond: Box::new(cond),
             then: Box::new(then),
             or,
@@ -91,7 +124,7 @@ impl ParserCtx<'_> {
         let typedef = self.fn_type()?;
         let block = self.block()?;
 
-        Ok(Node::Fn {
+        Ok(Expr::Fn {
             typedef,
             block: Box::new(block),
             span: start..self.end(),
@@ -109,8 +142,8 @@ impl ParserCtx<'_> {
             nodes.push(self.statement()?)
         }
         if self.is(&[Token::RightBrace]) {
-            Ok(Node::Block {
-                nodes,
+            Ok(Expr::Block {
+                stmts: nodes,
                 span: start..self.end(),
             })
         } else {
@@ -151,8 +184,20 @@ impl ParserCtx<'_> {
         while self.is(tokens) {
             let op = self.previous();
             let right = nested(self)?;
-            expr = Node::Binary {
-                op,
+            expr = Expr::Binary {
+                op: match op.0 {
+                    Token::Minus => (BinaryOp::Minus, op.1),
+                    Token::Plus => (BinaryOp::Plus, op.1),
+                    Token::Star => (BinaryOp::Mul, op.1),
+                    Token::Slash => (BinaryOp::Div, op.1),
+                    Token::BangEqual => (BinaryOp::NotEqual, op.1),
+                    Token::EqualEqual => (BinaryOp::Equal, op.1),
+                    Token::Greater => (BinaryOp::Greater, op.1),
+                    Token::GreaterEqual => (BinaryOp::GreaterEqual, op.1),
+                    Token::Less => (BinaryOp::Less, op.1),
+                    Token::LessEqual => (BinaryOp::LessEqual, op.1),
+                    _ => return error("invalid binary operator", &op.1),
+                },
                 left: Box::new(expr),
                 right: Box::new(right),
                 span: start..self.end(),
@@ -167,9 +212,13 @@ impl ParserCtx<'_> {
         if self.is(&[Token::Bang, Token::Minus]) {
             let op = self.previous();
             let expr = self.unary()?;
-            return Ok(Node::Unary {
-                op,
-                node: Box::new(expr),
+            return Ok(Expr::Unary {
+                op: match op.0 {
+                    Token::Bang => (UnaryOp::Bang, op.1),
+                    Token::Minus => (UnaryOp::Minus, op.1),
+                    _ => return error("invalid unary operator", &op.1),
+                },
+                expr: Box::new(expr),
                 span: start..self.end(),
             });
         }
@@ -179,16 +228,16 @@ impl ParserCtx<'_> {
     fn primary(&mut self) -> ParserResult {
         let current = self.advance();
         match current.0 {
-            Token::Bool(val) => Ok(Node::Literal((Value::Bool(val), current.1))),
-            Token::Number(val) => Ok(Node::Literal((Value::Number(val), current.1))),
-            Token::String(val) => Ok(Node::Literal((Value::String(val), current.1))),
+            Token::Bool(val) => Ok(Expr::Literal((Value::Bool(val), current.1))),
+            Token::Number(val) => Ok(Expr::Literal((Value::Number(val), current.1))),
+            Token::String(val) => Ok(Expr::Literal((Value::String(val), current.1))),
             Token::Identifier(val) => {
                 if self.check(Token::LeftParen) {
                     self.call((val, current.1))
                 } else if self.check(Token::Equal) {
                     self.variable((val, current.1))
                 } else {
-                    Ok(Node::Identifier((val, current.1)))
+                    Ok(Expr::Var((val, current.1)))
                 }
             }
             Token::LeftParen => {
@@ -214,7 +263,7 @@ impl ParserCtx<'_> {
         if !self.is(&[Token::Semicolon]) {
             return error("Expect ';' after statement", &self.current().1);
         }
-        Ok(Node::Let {
+        Ok(Expr::Let {
             name,
             expr,
             span: start..self.end(),
@@ -231,10 +280,10 @@ impl ParserCtx<'_> {
         while !self.check(Token::RightParen) && !self.is_end() {
             // get expr
             let expr = match self.statement()? {
-                Node::Block { nodes, span } => Node::Fn {
+                Expr::Block { stmts: nodes, span } => Expr::Fn {
                     typedef: (Type::Void, 0..0),
-                    block: Box::new(Node::Block {
-                        nodes,
+                    block: Box::new(Expr::Block {
+                        stmts: nodes,
                         span: span.clone(),
                     }),
                     span: span.clone(),
@@ -250,7 +299,7 @@ impl ParserCtx<'_> {
         if !self.is(&[Token::RightParen]) {
             return error("Expect ')' at end of args", &self.current().1);
         }
-        Ok(Node::Call {
+        Ok(Expr::Call {
             name,
             args,
             span: start..self.end(),
@@ -261,10 +310,7 @@ impl ParserCtx<'_> {
         let token = self.advance();
         match token.0 {
             Token::Identifier(name) => Ok((name, token.1)),
-            _ => Err(SyntaxErr {
-                message: "Identifier expected".to_owned(),
-                source: self.previous().1.clone(),
-            }),
+            _ => Err(err("Identifier expected", &token.1)),
         }
     }
 
@@ -287,7 +333,7 @@ impl ParserCtx<'_> {
     fn fn_type(&mut self) -> TypeResult {
         let start = self.start();
         if !self.is(&[Token::Fn]) {
-            return self.value_type();
+            return self.or_type();
         }
         // parse args
         let mut args = Vec::new();
@@ -326,27 +372,42 @@ impl ParserCtx<'_> {
         ))
     }
 
+    fn or_type(&mut self) -> TypeResult {
+        let start = self.start();
+        let mut types = Vec::new();
+        while !self.check(Token::RightParen) && !self.is_end() {
+            // get type
+            types.push(self.typedef()?.0);
+            // break when no comma
+            if !self.is(&[Token::Or]) {
+                break;
+            }
+        }
+        let result = match types.len() {
+            1 => types.get(0).unwrap().clone(),
+            _ => Type::Or(types),
+        };
+        Ok((result, start..self.end()))
+    }
+
     fn value_type(&mut self) -> TypeResult {
         let current = self.advance();
-        return match current.0 {
-            Token::Identifier(name) => match name.as_str() {
-                "num" => Ok((Type::Number, current.1)),
-                "str" => Ok((Type::String, current.1)),
-                "bool" => Ok((Type::Bool, current.1)),
-                _ => Err(SyntaxErr {
-                    message: format!("type identifier exprected, found {name}"),
-                    source: current.1,
-                }),
+        Ok((
+            match current.0 {
+                Token::TypeIdentifier(name) => match name.as_str() {
+                    "Num" => Type::Number,
+                    "Str" => Type::String,
+                    "Bool" => Type::Bool,
+                    _ => Type::Def(name),
+                },
+                _ => return Err(err("type identifier exprected", &current.1)),
             },
-            _ => Err(SyntaxErr {
-                message: "type identifier exprected".to_owned(),
-                source: current.1,
-            }),
-        };
+            current.1.clone(),
+        ))
     }
 }
 
-pub fn parse(tokens: &Vec<Spanned<Token>>) -> Result<Vec<Node>, SyntaxErr> {
+pub fn parse(tokens: &Vec<Spanned<Token>>) -> Result<Vec<Expr>, SyntaxErr> {
     let mut ctx = ParserCtx { tokens, current: 0 };
 
     let mut nodes = Vec::new();
