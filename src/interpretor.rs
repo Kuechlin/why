@@ -50,9 +50,11 @@ impl ExecCtx<'_> {
             },
         }
     }
-    fn set(&mut self, key: &str, val: Value) -> Result<(), &'static str> {
+    fn set(&mut self, key: &str, val: Value) -> Result<(), RuntimeErr> {
         if self.state.contains_key(key) {
-            Err("can't reassign a value to immutable variable")
+            Err(RuntimeErr {
+                message: "can't reassign a value to immutable variable".to_owned(),
+            })
         } else {
             let _ = self.state.insert(key.to_string(), val);
             Ok(())
@@ -97,6 +99,12 @@ impl ExecCtx<'_> {
                 typedef: _,
                 span: _,
             } => Ok(Value::Void),
+            Expr::Is {
+                expr,
+                cases,
+                span: _,
+            } => self.eval_is(expr, cases),
+            _ => error("Invalid Expression"),
         }
     }
 
@@ -111,10 +119,8 @@ impl ExecCtx<'_> {
 
     fn eval_let(&mut self, name: &str, expr: &Box<Expr>) -> EvalResult {
         let value = self.eval(expr)?;
-        match self.set(name, value) {
-            Ok(_) => Ok(Value::Void),
-            Err(err) => error(err),
-        }
+        self.set(name, value)?;
+        Ok(Value::Void)
     }
 
     fn eval_if(
@@ -132,6 +138,50 @@ impl ExecCtx<'_> {
                 None => Ok(Value::Void),
             }
         }
+    }
+
+    fn eval_is(&mut self, expr: &Box<Expr>, cases: &Vec<Expr>) -> EvalResult {
+        let value = self.eval(expr)?;
+
+        for c in cases {
+            let then = match c {
+                Expr::Match {
+                    op,
+                    expr,
+                    then,
+                    span: _,
+                } => {
+                    let right_value = self.eval(expr)?;
+                    let is_match = match op.0 {
+                        BinaryOp::NotEqual => value != right_value,
+                        BinaryOp::Equal => value == right_value,
+                        BinaryOp::Greater => value > right_value,
+                        BinaryOp::GreaterEqual => value >= right_value,
+                        BinaryOp::Less => value < right_value,
+                        BinaryOp::LessEqual => value <= right_value,
+                        _ => false,
+                    };
+                    if !is_match {
+                        continue;
+                    }
+                    then
+                }
+                /*Expr::MatchType {
+                    typedef,
+                    then,
+                    span,
+                } => {
+                    println!("match type");
+                    continue;
+                }*/
+                _ => continue,
+            };
+            let mut ctx = self.derive();
+            ctx.set("it", value)?;
+            return ctx.eval(then);
+        }
+
+        Ok(Value::Void)
     }
 
     fn eval_fn(&mut self, expr: &Box<Expr>, typedef: &Type) -> EvalResult {
@@ -159,10 +209,7 @@ impl ExecCtx<'_> {
                 None => return error(format!("arg {name} is mission").as_str()),
             };
 
-            match ctx.set(name, arg) {
-                Ok(_) => (),
-                Err(err) => return error(err),
-            }
+            ctx.set(name, arg)?;
         }
 
         ctx.eval(fn_expr.as_ref())

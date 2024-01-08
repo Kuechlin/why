@@ -94,6 +94,7 @@ impl LexerCtx {
         match value.as_str() {
             "fn" => self.add(Token::Fn),
             "if" => self.add(Token::If),
+            "is" => self.add(Token::Is),
             "def" => self.add(Token::Def),
             "else" => self.add(Token::Else),
             "true" => self.add(Token::Bool(true)),

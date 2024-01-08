@@ -53,7 +53,7 @@ Is {
 }
 
 Match {
-  !statement Identifier? ("+" | "-" | "*" | "/" | "==" | "!=" | ">=" | ">" | "<=" | "<" | (":" type)) expression "->" statement
+  !statement ("!" | ">=" | ">" | "<=" | "<" | ":")? (expression | type) "->" statement ","?
 }
 
 Let {
@@ -70,7 +70,7 @@ ParamList {
 
 
 type[@isGroup=Type] {
-  Func { "(" "fn" ":" type "->" type ")" } |
+  Func { "(" kw<"fn"> ":" type "->" type ")" } |
   Or { "(" type ("|" type)* ")" } |
   TypeIdentifier
 }

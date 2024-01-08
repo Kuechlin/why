@@ -142,6 +142,45 @@ impl AnalyserCtx<'_> {
                 typedef: _,
                 span: _,
             } => Cow::Owned(Type::Void),
+            Expr::Is {
+                expr,
+                cases,
+                span: _,
+            } => {
+                let expr_type = self.get_return_type(expr).into_owned();
+                let mut return_type: Option<Type> = None;
+                for case in cases {
+                    let typedef = match case {
+                        Expr::MatchType {
+                            typedef,
+                            then: _,
+                            span: _,
+                        } => typedef.0.clone(),
+                        _ => expr_type.clone(),
+                    };
+                    let mut ctx = self.derive();
+                    let _ = ctx.set("it", typedef);
+                    let then_return = ctx.get_return_type(case);
+                    match return_type {
+                        Some(t) => return_type = Some(t.combine(then_return.as_ref())),
+                        None => return_type = Some(then_return.into_owned()),
+                    }
+                    self.errors.append(&mut ctx.errors);
+                }
+
+                Cow::Owned(return_type.unwrap_or(Type::Void))
+            }
+            Expr::Match {
+                op: _,
+                expr: _,
+                then,
+                span: _,
+            } => self.get_return_type(&then),
+            Expr::MatchType {
+                typedef: _,
+                then,
+                span: _,
+            } => self.get_return_type(&then),
         }
     }
 
@@ -199,6 +238,11 @@ impl AnalyserCtx<'_> {
                 block,
                 span: _,
             } => self.visit_fn(typedef, block),
+            Expr::Is {
+                expr,
+                cases,
+                span: _,
+            } => self.visit_is(expr, cases),
             _ => self.visit_expr(expr),
         }
     }
@@ -235,6 +279,50 @@ impl AnalyserCtx<'_> {
         match or {
             Some(expr) => self.visit(expr.as_ref()),
             None => (),
+        }
+    }
+
+    fn visit_is(&mut self, expr: &Box<Expr>, cases: &Vec<Expr>) {
+        self.visit(expr);
+        let expr_type = self.get_return_type(expr).into_owned();
+
+        for case in cases {
+            let (then, typedef) = match case {
+                Expr::Match {
+                    op,
+                    expr: right,
+                    then,
+                    span: _,
+                } => {
+                    self.visit_binary(op, expr, right);
+                    (then, expr_type.clone())
+                }
+                Expr::MatchType {
+                    typedef,
+                    then,
+                    span: _,
+                } => {
+                    if !expr_type.includes(&typedef.0) {
+                        self.err(
+                            format!(
+                                "expression is allways false, type {} is not included in {}",
+                                typedef.0, expr_type
+                            )
+                            .as_str(),
+                            &typedef.1,
+                        )
+                    }
+                    (then, typedef.0.clone())
+                }
+                _ => {
+                    self.err("invalid match case", case.get_span());
+                    continue;
+                }
+            };
+            let mut ctx = self.derive();
+            let _ = ctx.set("it", typedef);
+            ctx.visit(then);
+            self.errors.append(&mut ctx.errors);
         }
     }
 

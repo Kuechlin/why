@@ -61,6 +61,22 @@ pub enum Expr {
         typedef: Spanned<Type>,
         span: Span,
     },
+    Is {
+        expr: Box<Self>,
+        cases: Vec<Self>,
+        span: Span,
+    },
+    Match {
+        op: Spanned<BinaryOp>,
+        expr: Box<Self>,
+        then: Box<Self>,
+        span: Span,
+    },
+    MatchType {
+        typedef: Spanned<Type>,
+        then: Box<Self>,
+        span: Span,
+    },
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -126,6 +142,22 @@ impl Expr {
                 typedef: _,
                 span,
             } => span,
+            Expr::Is {
+                expr: _,
+                cases: _,
+                span,
+            } => span,
+            Expr::Match {
+                op: _,
+                expr: _,
+                then: _,
+                span,
+            } => span,
+            Expr::MatchType {
+                typedef: _,
+                then: _,
+                span,
+            } => span,
         }
     }
 }
@@ -148,7 +180,13 @@ impl Type {
                 types.push(right.clone());
                 Type::Or(types)
             }
-            (left, right) => Type::Or(vec![left.clone(), right.clone()]),
+            (left, right) => {
+                if *left == *right {
+                    left.clone()
+                } else {
+                    Type::Or(vec![left.clone(), right.clone()])
+                }
+            }
         }
     }
 
@@ -261,6 +299,29 @@ impl Display for Expr {
                 typedef,
                 span: _,
             } => write!(f, "def {}: {}", name.0, typedef.0),
+            Expr::Is {
+                expr,
+                cases,
+                span: _,
+            } => {
+                let list = cases
+                    .iter()
+                    .map(|x| format!("\t{x},"))
+                    .collect::<Vec<String>>()
+                    .join("\n");
+                write!(f, "{} is {{\n{list}\n}}", expr.as_ref())
+            }
+            Expr::Match {
+                op,
+                expr: cond,
+                then,
+                span: _,
+            } => write!(f, "{} {} -> {}", op.0, cond.as_ref(), then.as_ref()),
+            Expr::MatchType {
+                typedef,
+                then,
+                span: _,
+            } => write!(f, ": {} -> {}", typedef.0, then.as_ref()),
         }
     }
 }

@@ -19,7 +19,7 @@ fn err(msg: &'static str, span: &Span) -> SyntaxErr {
         source: span.clone(),
     }
 }
-fn error(msg: &'static str, span: &Span) -> ParserResult {
+fn error<'a>(msg: &'a str, span: &Span) -> ParserResult {
     Err(SyntaxErr {
         message: msg.to_owned(),
         source: span.clone(),
@@ -54,7 +54,11 @@ impl ParserCtx<'_> {
         self.tokens[self.current - 1].clone()
     }
     fn current(&self) -> Spanned<Token> {
-        self.tokens[self.current].clone()
+        if self.is_end() {
+            (Token::Eof, (self.current - 1)..self.current)
+        } else {
+            self.tokens[self.current].clone()
+        }
     }
     fn start(&self) -> usize {
         self.current().1.start
@@ -65,13 +69,13 @@ impl ParserCtx<'_> {
 
     // statement
     fn statement(&mut self) -> ParserResult {
-        self.definition()
+        self.expr_def()
     }
 
-    fn definition(&mut self) -> ParserResult {
+    fn expr_def(&mut self) -> ParserResult {
         let start = self.start();
         if !self.is(&[Token::Def]) {
-            return self.condition();
+            return self.expr_if();
         }
         let token = self.advance();
         let name = match token.0 {
@@ -92,17 +96,17 @@ impl ParserCtx<'_> {
         })
     }
 
-    fn condition(&mut self) -> ParserResult {
+    fn expr_if(&mut self) -> ParserResult {
         let start = self.start();
         if !self.is(&[Token::If]) {
-            return Ok(self.function()?);
+            return Ok(self.expr_fn()?);
         }
 
         let cond = self.expression()?;
         if !self.check(Token::LeftBrace) {
             return error("Expected block statement", &self.current().1);
         }
-        let then = self.block()?;
+        let then = self.expr_block()?;
         let or = match self.is(&[Token::Else]) {
             true => Some(Box::new(self.statement()?)),
             false => None,
@@ -116,13 +120,13 @@ impl ParserCtx<'_> {
         });
     }
 
-    fn function(&mut self) -> ParserResult {
+    fn expr_fn(&mut self) -> ParserResult {
         let start = self.start();
         if !self.check(Token::Fn) {
-            return Ok(self.block()?);
+            return Ok(self.expr_block()?);
         }
-        let typedef = self.fn_type()?;
-        let block = self.block()?;
+        let typedef = self.type_fn()?;
+        let block = self.expr_block()?;
 
         Ok(Expr::Fn {
             typedef,
@@ -131,7 +135,7 @@ impl ParserCtx<'_> {
         })
     }
 
-    fn block(&mut self) -> ParserResult {
+    fn expr_block(&mut self) -> ParserResult {
         let start = self.start();
         if !self.is(&[Token::LeftBrace]) {
             return Ok(self.expression()?);
@@ -227,33 +231,117 @@ impl ParserCtx<'_> {
     // int, float, string, bool, expression
     fn primary(&mut self) -> ParserResult {
         let current = self.advance();
-        match current.0 {
-            Token::Bool(val) => Ok(Expr::Literal((Value::Bool(val), current.1))),
-            Token::Number(val) => Ok(Expr::Literal((Value::Number(val), current.1))),
-            Token::String(val) => Ok(Expr::Literal((Value::String(val), current.1))),
+        let expr = match current.0 {
+            Token::Bool(val) => Expr::Literal((Value::Bool(val), current.1)),
+            Token::Number(val) => Expr::Literal((Value::Number(val), current.1)),
+            Token::String(val) => Expr::Literal((Value::String(val), current.1)),
             Token::Identifier(val) => {
                 if self.check(Token::LeftParen) {
-                    self.call((val, current.1))
+                    self.expr_call((val, current.1))?
                 } else if self.check(Token::Equal) {
-                    self.variable((val, current.1))
+                    self.expr_let((val, current.1))?
                 } else {
-                    Ok(Expr::Var((val, current.1)))
+                    Expr::Var((val, current.1))
                 }
             }
             Token::LeftParen => {
                 // group
                 let expr = self.expression()?;
                 if !self.is(&[Token::RightParen]) {
-                    error("Expect ')' after expression.", &self.current().1)
-                } else {
-                    Ok(expr)
+                    return error("Expect ')' after expression.", &self.current().1);
                 }
+                expr
             }
-            _ => error("invalid token", &current.1),
-        }
+            _ => return error("invalid token", &current.1),
+        };
+        // check if is match expression
+        self.expr_is(expr)
     }
 
-    fn variable(&mut self, name: Spanned<String>) -> ParserResult {
+    fn expr_is(&mut self, expr: Expr) -> ParserResult {
+        let start = self.start();
+        if !self.is(&[Token::Is]) {
+            return Ok(expr);
+        }
+        if !self.is(&[Token::LeftBrace]) {
+            return error("Expect '{' after is keyword", &self.current().1);
+        }
+        let mut cases = Vec::new();
+        while !self.check(Token::RightBrace) || !self.is_end() {
+            let current = self.advance();
+            let (op, cond) = match current.0 {
+                Token::Comma => continue,
+                Token::RightBrace => {
+                    self.current -= 1;
+                    break;
+                }
+                // match equal
+                Token::String(val) => (
+                    BinaryOp::Equal,
+                    Expr::Literal((Value::String(val), current.1.clone())),
+                ),
+                Token::Number(val) => (
+                    BinaryOp::Equal,
+                    Expr::Literal((Value::Number(val), current.1.clone())),
+                ),
+                Token::Bool(val) => (
+                    BinaryOp::Equal,
+                    Expr::Literal((Value::Bool(val), current.1.clone())),
+                ),
+                // match compare
+                Token::Bang => (BinaryOp::NotEqual, self.expression()?),
+                Token::GreaterEqual => (BinaryOp::GreaterEqual, self.expression()?),
+                Token::Greater => (BinaryOp::Greater, self.expression()?),
+                Token::LessEqual => (BinaryOp::LessEqual, self.expression()?),
+                Token::Less => (BinaryOp::Less, self.expression()?),
+                // match type
+                Token::DotDot => {
+                    let typedef = self.typedef()?;
+
+                    if !self.is(&[Token::Arrow]) {
+                        return error("expected '->' after match condition", &self.current().1);
+                    }
+                    let then = self.expr_block()?;
+                    cases.push(Expr::MatchType {
+                        typedef,
+                        then: Box::new(then),
+                        span: current.1.start..self.end(),
+                    });
+                    continue;
+                }
+
+                _ => {
+                    return error(
+                        format!("match case expected, found {}", current.0).as_str(),
+                        &current.1,
+                    )
+                }
+            };
+            // build match condition
+            if !self.is(&[Token::Arrow]) {
+                return error("expected '->' after match condition", &self.current().1);
+            }
+
+            let then = self.expr_block()?;
+
+            cases.push(Expr::Match {
+                op: (op, current.1.clone()),
+                expr: Box::new(cond),
+                then: Box::new(then),
+                span: current.1.start..self.end(),
+            });
+        }
+        if !self.is(&[Token::RightBrace]) {
+            return error("Expect '}' at end of match", &self.current().1);
+        }
+        Ok(Expr::Is {
+            expr: Box::new(expr),
+            cases,
+            span: start..self.end(),
+        })
+    }
+
+    fn expr_let(&mut self, name: Spanned<String>) -> ParserResult {
         let start = self.start();
         if !self.is(&[Token::Equal]) {
             return error("initializer expected", &name.1);
@@ -270,7 +358,7 @@ impl ParserCtx<'_> {
         })
     }
 
-    fn call(&mut self, name: Spanned<String>) -> ParserResult {
+    fn expr_call(&mut self, name: Spanned<String>) -> ParserResult {
         let start = self.start();
         if !self.is(&[Token::LeftParen]) {
             return error("Expect '(' after identifer", &name.1);
@@ -317,9 +405,9 @@ impl ParserCtx<'_> {
     // types
     fn typedef(&mut self) -> TypeResult {
         if !self.is(&[Token::LeftParen]) {
-            return self.value_type();
+            return self.type_value();
         }
-        let t = self.fn_type()?;
+        let t = self.type_fn()?;
         if self.is(&[Token::RightParen]) {
             Ok(t)
         } else {
@@ -330,10 +418,10 @@ impl ParserCtx<'_> {
         }
     }
 
-    fn fn_type(&mut self) -> TypeResult {
+    fn type_fn(&mut self) -> TypeResult {
         let start = self.start();
         if !self.is(&[Token::Fn]) {
-            return self.or_type();
+            return self.type_or();
         }
         // parse args
         let mut args = Vec::new();
@@ -372,7 +460,7 @@ impl ParserCtx<'_> {
         ))
     }
 
-    fn or_type(&mut self) -> TypeResult {
+    fn type_or(&mut self) -> TypeResult {
         let start = self.start();
         let mut types = Vec::new();
         while !self.check(Token::RightParen) && !self.is_end() {
@@ -390,7 +478,7 @@ impl ParserCtx<'_> {
         Ok((result, start..self.end()))
     }
 
-    fn value_type(&mut self) -> TypeResult {
+    fn type_value(&mut self) -> TypeResult {
         let current = self.advance();
         Ok((
             match current.0 {

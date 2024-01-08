@@ -31,6 +31,7 @@ const YLang = LRLanguage.define({
                 String: t.string,
                 If: t.keyword,
                 Is: t.keyword,
+                Match: t.keyword,
                 Let: t.definition(t.brace),
                 Def: t.keyword,
                 Block: t.brace,
