@@ -53,7 +53,7 @@ Is {
 }
 
 Match {
-  !statement ("!" | ">=" | ">" | "<=" | "<" | ":")? (expression | type) "->" statement ","?
+  !statement ("!" | ">=" | ">" | "<=" | "<" | ":")? (expression | type)? "->" statement ","?
 }
 
 Let {

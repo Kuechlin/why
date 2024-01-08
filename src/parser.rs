@@ -266,6 +266,7 @@ impl ParserCtx<'_> {
         if !self.is(&[Token::LeftBrace]) {
             return error("Expect '{' after is keyword", &self.current().1);
         }
+        let mut default = Expr::Literal((Value::Void, 0..0));
         let mut cases = Vec::new();
         while !self.check(Token::RightBrace) || !self.is_end() {
             let current = self.advance();
@@ -309,7 +310,11 @@ impl ParserCtx<'_> {
                     });
                     continue;
                 }
-
+                // match default
+                Token::Arrow => {
+                    default = self.expr_block()?;
+                    continue;
+                }
                 _ => {
                     return error(
                         format!("match case expected, found {}", current.0).as_str(),
@@ -337,6 +342,7 @@ impl ParserCtx<'_> {
         Ok(Expr::Is {
             expr: Box::new(expr),
             cases,
+            default: Box::new(default),
             span: start..self.end(),
         })
     }

@@ -64,6 +64,7 @@ pub enum Expr {
     Is {
         expr: Box<Self>,
         cases: Vec<Self>,
+        default: Box<Expr>,
         span: Span,
     },
     Match {
@@ -145,6 +146,7 @@ impl Expr {
             Expr::Is {
                 expr: _,
                 cases: _,
+                default: _,
                 span,
             } => span,
             Expr::Match {
@@ -167,15 +169,25 @@ impl Type {
         match (self, other) {
             (Type::Or(left), Type::Or(right)) => {
                 let mut types = left.clone();
-                types.append(&mut right.clone());
+                for t in right {
+                    if !types.contains(t) {
+                        types.push(t.clone());
+                    }
+                }
                 Type::Or(types)
             }
             (left, Type::Or(right)) => {
+                if right.contains(left) {
+                    return Type::Or(right.clone());
+                }
                 let mut types = right.clone();
                 types.push(left.clone());
                 Type::Or(types)
             }
             (Type::Or(left), right) => {
+                if left.contains(right) {
+                    return Type::Or(left.clone());
+                }
                 let mut types = left.clone();
                 types.push(right.clone());
                 Type::Or(types)
@@ -302,6 +314,7 @@ impl Display for Expr {
             Expr::Is {
                 expr,
                 cases,
+                default,
                 span: _,
             } => {
                 let list = cases
@@ -309,7 +322,12 @@ impl Display for Expr {
                     .map(|x| format!("\t{x},"))
                     .collect::<Vec<String>>()
                     .join("\n");
-                write!(f, "{} is {{\n{list}\n}}", expr.as_ref())
+                write!(
+                    f,
+                    "{} is {{\n{list}\n\t-> {}}}",
+                    expr.as_ref(),
+                    default.as_ref()
+                )
             }
             Expr::Match {
                 op,

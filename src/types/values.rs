@@ -52,7 +52,7 @@ impl Display for Type {
             Type::Number => "Num",
             Type::String => "Str",
             Type::Bool => "Bool",
-            Type::Void => "_",
+            Type::Void => "Void",
             Type::Def(val) => val,
             Type::Or(types) => {
                 return write!(

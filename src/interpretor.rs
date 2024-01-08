@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{borrow::Cow, collections::HashMap};
 
 use crate::types::{
     exprs::BinaryOp,
@@ -18,12 +18,14 @@ fn error(msg: &str) -> EvalResult {
 
 pub struct ExecCtx<'a> {
     pub enclosing: Option<&'a ExecCtx<'a>>,
+    pub types: HashMap<String, Type>,
     pub state: HashMap<String, Value>,
 }
 impl ExecCtx<'_> {
     pub fn new<'a>() -> ExecCtx<'a> {
         ExecCtx {
             enclosing: None,
+            types: HashMap::new(),
             state: HashMap::new(),
         }
     }
@@ -38,19 +40,20 @@ impl ExecCtx<'_> {
     fn derive(&mut self) -> ExecCtx {
         ExecCtx {
             enclosing: Some(self),
+            types: HashMap::new(),
             state: HashMap::new(),
         }
     }
-    fn get(&self, key: &str) -> Value {
+    fn get_value(&self, key: &str) -> Value {
         match self.state.get(key) {
             Some(val) => val.to_owned(),
             None => match self.enclosing {
-                Some(parent) => parent.get(key),
+                Some(parent) => parent.get_value(key),
                 None => Value::Void,
             },
         }
     }
-    fn set(&mut self, key: &str, val: Value) -> Result<(), RuntimeErr> {
+    fn set_value(&mut self, key: &str, val: Value) -> Result<(), RuntimeErr> {
         if self.state.contains_key(key) {
             Err(RuntimeErr {
                 message: "can't reassign a value to immutable variable".to_owned(),
@@ -58,6 +61,55 @@ impl ExecCtx<'_> {
         } else {
             let _ = self.state.insert(key.to_string(), val);
             Ok(())
+        }
+    }
+    fn get_type(&self, key: &str) -> Type {
+        match self.types.get(key) {
+            Some(val) => val.to_owned(),
+            None => match self.enclosing {
+                Some(parent) => parent.get_type(key),
+                None => Type::Void,
+            },
+        }
+    }
+    fn set_type(&mut self, key: &str, val: Type) -> Result<(), RuntimeErr> {
+        if self.types.contains_key(key) {
+            Err(RuntimeErr {
+                message: "can't reassign a value to immutable variable".to_owned(),
+            })
+        } else {
+            let _ = self.types.insert(key.to_string(), val);
+            Ok(())
+        }
+    }
+
+    fn type_of(&self, val: &Value) -> Cow<'_, Type> {
+        match val {
+            Value::Number(_) => Cow::Owned(Type::Number),
+            Value::String(_) => Cow::Owned(Type::String),
+            Value::Bool(_) => Cow::Owned(Type::Bool),
+            Value::Fn { typedef, expr: _ } => self.resolve_type(typedef),
+            Value::Void => Cow::Owned(Type::Void),
+        }
+    }
+
+    fn resolve_type(&self, typedef: &Type) -> Cow<'_, Type> {
+        match typedef {
+            Type::Def(name) => self.resolve_type(&self.get_type(name)),
+            Type::Or(types) => Cow::Owned(Type::Or(
+                types
+                    .iter()
+                    .map(|t| self.resolve_type(t).into_owned())
+                    .collect(),
+            )),
+            Type::Fn { args, returns } => Cow::Owned(Type::Fn {
+                args: args
+                    .iter()
+                    .map(|t| (t.0.clone(), self.resolve_type(&t.1).into_owned()))
+                    .collect(),
+                returns: Box::new(self.resolve_type(&returns).into_owned()),
+            }),
+            _ => Cow::Owned(typedef.clone()),
         }
     }
 
@@ -80,7 +132,7 @@ impl ExecCtx<'_> {
                 typedef,
                 span: _,
             } => self.eval_fn(block, &typedef.0),
-            Expr::Var(name) => Ok(self.get(&name.0)),
+            Expr::Var(name) => Ok(self.get_value(&name.0)),
             Expr::Literal(value) => Ok(value.0.clone()),
             Expr::Unary { op, expr, span: _ } => self.eval_unary(&op.0, expr),
             Expr::Binary {
@@ -95,15 +147,16 @@ impl ExecCtx<'_> {
                 span: _,
             } => self.eval_call(&name.0, args),
             Expr::Def {
-                name: _,
-                typedef: _,
+                name,
+                typedef,
                 span: _,
-            } => Ok(Value::Void),
+            } => self.eval_def(&name.0, &typedef.0),
             Expr::Is {
                 expr,
                 cases,
+                default,
                 span: _,
-            } => self.eval_is(expr, cases),
+            } => self.eval_is(expr, cases, default),
             _ => error("Invalid Expression"),
         }
     }
@@ -119,7 +172,12 @@ impl ExecCtx<'_> {
 
     fn eval_let(&mut self, name: &str, expr: &Box<Expr>) -> EvalResult {
         let value = self.eval(expr)?;
-        self.set(name, value)?;
+        self.set_value(name, value)?;
+        Ok(Value::Void)
+    }
+
+    fn eval_def(&mut self, name: &str, typedef: &Type) -> EvalResult {
+        self.set_type(name, typedef.clone())?;
         Ok(Value::Void)
     }
 
@@ -140,7 +198,7 @@ impl ExecCtx<'_> {
         }
     }
 
-    fn eval_is(&mut self, expr: &Box<Expr>, cases: &Vec<Expr>) -> EvalResult {
+    fn eval_is(&mut self, expr: &Box<Expr>, cases: &Vec<Expr>, default: &Box<Expr>) -> EvalResult {
         let value = self.eval(expr)?;
 
         for c in cases {
@@ -166,22 +224,29 @@ impl ExecCtx<'_> {
                     }
                     then
                 }
-                /*Expr::MatchType {
+                Expr::MatchType {
                     typedef,
                     then,
-                    span,
+                    span: _,
                 } => {
-                    println!("match type");
-                    continue;
-                }*/
+                    let value_type = self.type_of(&value);
+                    let match_type = self.resolve_type(&typedef.0);
+
+                    if !match_type.includes(&value_type) {
+                        continue;
+                    }
+                    then
+                }
                 _ => continue,
             };
             let mut ctx = self.derive();
-            ctx.set("it", value)?;
+            ctx.set_value("it", value)?;
             return ctx.eval(then);
         }
 
-        Ok(Value::Void)
+        let mut ctx = self.derive();
+        ctx.set_value("it", value)?;
+        return ctx.eval(default);
     }
 
     fn eval_fn(&mut self, expr: &Box<Expr>, typedef: &Type) -> EvalResult {
@@ -192,7 +257,7 @@ impl ExecCtx<'_> {
     }
 
     fn eval_call(&mut self, name: &String, args: &Vec<Expr>) -> EvalResult {
-        let (typedef, fn_expr) = match self.get(name) {
+        let (typedef, fn_expr) = match self.get_value(name) {
             Value::Fn { typedef, expr } => (typedef, expr),
             _ => return error(format!("{name} is not a function").as_str()),
         };
@@ -209,7 +274,7 @@ impl ExecCtx<'_> {
                 None => return error(format!("arg {name} is mission").as_str()),
             };
 
-            ctx.set(name, arg)?;
+            ctx.set_value(name, arg)?;
         }
 
         ctx.eval(fn_expr.as_ref())

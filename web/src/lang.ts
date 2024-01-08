@@ -62,7 +62,7 @@ export const YLangLint = linter((view) => {
     }));
 });
 
-const keywords = ["let", "fn", "num", "str", "bool"];
+const keywords = ["fn", "Num", "Str", "Bool"];
 
 function ylangCompletions(context: CompletionContext): CompletionResult | null {
     let check = context.matchBefore(/: ?/) ?? context.matchBefore(/\-> ?/);
@@ -71,15 +71,15 @@ function ylangCompletions(context: CompletionContext): CompletionResult | null {
             from: context.pos,
             options: [
                 {
-                    label: "num",
+                    label: "Num",
                     type: "type",
                 },
                 {
-                    label: "str",
+                    label: "Str",
                     type: "type",
                 },
                 {
-                    label: "bool",
+                    label: "Bool",
                     type: "type",
                 },
             ],
@@ -97,7 +97,7 @@ function ylangCompletions(context: CompletionContext): CompletionResult | null {
         from: word.from,
         options: [
             {
-                label: "let",
+                label: "def",
                 type: "keyword",
             },
             {
