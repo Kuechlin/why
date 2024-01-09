@@ -161,7 +161,11 @@ impl ExecCtx<'_> {
                 default,
                 span: _,
             } => self.eval_is(expr, cases, default),
-            Expr::New { entries, span: _ } => self.eval_new(entries),
+            Expr::New {
+                entries,
+                typedef,
+                span: _,
+            } => self.eval_new(entries, typedef),
             _ => error("Invalid Expression"),
         }
     }
@@ -208,7 +212,11 @@ impl ExecCtx<'_> {
         }
     }
 
-    fn eval_new(&mut self, entries: &HashMap<Spanned<String>, Expr>) -> EvalResult {
+    fn eval_new(
+        &mut self,
+        entries: &HashMap<Spanned<String>, Expr>,
+        typedef: &Option<Spanned<String>>,
+    ) -> EvalResult {
         let mut types = HashMap::new();
         let mut values = HashMap::new();
         for ((name, _), expr) in entries {
@@ -218,7 +226,10 @@ impl ExecCtx<'_> {
             types.insert(name.clone(), typedef);
         }
         Ok(Value::Obj {
-            typedef: Type::Obj(types),
+            typedef: match typedef {
+                Some((name, _)) => Type::Def(name.to_owned()),
+                None => Type::Obj(types),
+            },
             entries: values,
         })
     }

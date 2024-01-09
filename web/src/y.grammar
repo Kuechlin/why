@@ -96,7 +96,7 @@ Unary {
 }
 
 ObjInit {
-  kw<"new"> "{" (Identifier "=" expression Comma)* "}"
+  kw<"new"> TypeIdentifier? "{" (Identifier "=" expression Comma)* "}"
 }
 
 Call {

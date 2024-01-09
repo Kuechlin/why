@@ -196,14 +196,21 @@ impl AnalyserCtx<'_> {
                 then,
                 span: _,
             } => self.get_return_type(&then),
-            Expr::New { entries, span: _ } => {
-                let mut types = HashMap::new();
-                for (key, expr) in entries {
-                    let return_type = self.get_return_type(expr);
-                    types.insert(key.0.clone(), return_type.into_owned());
+            Expr::New {
+                entries,
+                typedef,
+                span: _,
+            } => match typedef {
+                Some(t) => self.resolve_type(&Type::Def(t.0.clone()), &t.1),
+                None => {
+                    let mut types = HashMap::new();
+                    for (key, expr) in entries {
+                        let return_type = self.get_return_type(expr);
+                        types.insert(key.0.clone(), return_type.into_owned());
+                    }
+                    Cow::Owned(Type::Obj(types))
                 }
-                Cow::Owned(Type::Obj(types))
-            }
+            },
         }
     }
 
@@ -267,7 +274,11 @@ impl AnalyserCtx<'_> {
                 default,
                 span: _,
             } => self.visit_is(expr, cases, default),
-            Expr::New { entries, span: _ } => self.visit_new(entries),
+            Expr::New {
+                entries,
+                typedef,
+                span: _,
+            } => self.visit_new(entries, typedef),
             _ => self.visit_expr(expr),
         }
     }
@@ -290,9 +301,39 @@ impl AnalyserCtx<'_> {
         }
     }
 
-    fn visit_new(&mut self, entries: &HashMap<Spanned<String>, Expr>) {
+    fn visit_new(
+        &mut self,
+        entries: &HashMap<Spanned<String>, Expr>,
+        typedef: &Option<Spanned<String>>,
+    ) {
         for (_, expr) in entries {
             self.visit(expr);
+        }
+
+        match typedef {
+            Some(typedef) => {
+                let def_type = self
+                    .resolve_type(&Type::Def(typedef.0.clone()), &typedef.1)
+                    .into_owned();
+                let expr_type = self
+                    .get_return_type(&Expr::New {
+                        entries: entries.clone(),
+                        typedef: None,
+                        span: 0..0,
+                    })
+                    .into_owned();
+                if !def_type.includes(&expr_type) {
+                    self.err(
+                        format!(
+                            "initializer is not assignable to {}\nexpected: {}\nfound: {}",
+                            typedef.0, def_type, expr_type
+                        )
+                        .as_str(),
+                        &typedef.1,
+                    )
+                }
+            }
+            None => (),
         }
     }
 

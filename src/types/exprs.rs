@@ -70,6 +70,7 @@ pub enum Expr {
     },
     New {
         entries: HashMap<Spanned<String>, Expr>,
+        typedef: Option<Spanned<String>>,
         span: Span,
     },
 }
@@ -158,7 +159,11 @@ impl Expr {
                 then: _,
                 span,
             } => span,
-            Expr::New { entries: _, span } => span,
+            Expr::New {
+                entries: _,
+                typedef: _,
+                span,
+            } => span,
         }
     }
 }
@@ -291,13 +296,21 @@ impl Display for Expr {
                 then,
                 span: _,
             } => write!(f, ": {} -> {}", typedef.0, then.as_ref()),
-            Expr::New { entries, span: _ } => {
+            Expr::New {
+                entries,
+                typedef,
+                span: _,
+            } => {
                 let list = entries
                     .iter()
                     .map(|(name, value)| format!("{} = {value},", name.0))
                     .collect::<Vec<String>>()
                     .join("\n");
-                write!(f, "{{\n{list}\n}}")
+
+                match typedef {
+                    Some(name) => write!(f, "new {} {{\n{list}\n}}", name.0),
+                    _ => write!(f, "new {{\n{list}\n}}"),
+                }
             }
         }
     }

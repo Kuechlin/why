@@ -130,6 +130,14 @@ impl ParserCtx<'_> {
         if !self.is(&[Token::New]) {
             return Ok(self.expr_if()?);
         }
+        let token = self.current();
+        let name = match token.0 {
+            Token::TypeIdentifier(name) => {
+                self.current += 1;
+                Some((name, token.1))
+            }
+            _ => None,
+        };
         // object
         if self.is(&[Token::LeftBrace]) {
             let mut entries = HashMap::new();
@@ -154,6 +162,7 @@ impl ParserCtx<'_> {
                 return error("Expect '}' at end of block", &self.current().1);
             }
             Ok(Expr::New {
+                typedef: name,
                 entries,
                 span: start..self.end(),
             })
