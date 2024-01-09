@@ -21,6 +21,7 @@ button:hover {
 }
 
 section {
+    box-sizing: border-box;
     padding-top: 2rem;
     min-height: 100vh;
     max-width: 1000px;
@@ -38,21 +39,44 @@ section {
     justify-content: center;
 }
 
-#editor {
+nav {
+    color: #abb2bf;
+    font-size: 1.2rem;
+    display: flex;
+}
+
+nav > div {
+    cursor: pointer;
+    padding: 4px 16px;
+}
+.active {
+    color: #61afef;
+    font-weight: bold;
+    border-bottom: 2px solid #abb2bf;
+}
+
+.content {
+    padding-top: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.editor {
     border: 1px dotted #abb2bf66;
     border-radius: 2px;
 }
 
-#result::before {
+.box::before {
     content: "result:";
     color: #61afef;
 }
 
-#error {
+.error {
     border-color: #e06c75;
     color: #e06c75;
 }
-#error::before {
+.error::before {
     content: "error:";
     color: #e06c75;
 }
@@ -93,5 +117,45 @@ section {
     color: #e06c75;
 }
 .type {
+    color: #e5c07b;
+}
+.variable {
+    color: #e06c75;
+}
+.comment {
     color: #abb2bf66;
+}
+.keyword {
+    color: #c678dd;
+}
+.function {
+    color: #61afef;
+}
+.space {
+    white-space: pre-wrap;
+}
+
+.docs {
+    display: flex;
+    gap: 16px 16px;
+    flex-wrap: wrap;
+}
+
+.docs article {
+    position: relative;
+    min-width: 128px;
+    color: #abb2bf;
+    border-radius: 2px;
+    border: 1px dotted #abb2bf66;
+    padding: 8px;
+}
+
+.docs article .title {
+    color: #61afef;
+    position: absolute;
+    top: -8px;
+    left: 4px;
+    padding: 0px 4px;
+    background-color: #282c34;
+    font-size: 10px;
 }
