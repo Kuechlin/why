@@ -86,7 +86,7 @@ impl Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Value::Number(x) => write!(f, "{x}"),
-            Value::String(x) => write!(f, "{x}"),
+            Value::String(x) => write!(f, "\"{x}\""),
             Value::Bool(x) => write!(f, "{x}"),
             Value::Fn { typedef, expr } => write!(f, "{typedef} {expr}"),
             Value::Void => write!(f, "_"),

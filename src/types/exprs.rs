@@ -268,7 +268,7 @@ impl Display for Expr {
             Expr::Block { stmts, span: _ } => {
                 let list = stmts
                     .iter()
-                    .map(|s| format!("\t{s}"))
+                    .map(|s| format!("{s}"))
                     .collect::<Vec<String>>()
                     .join("\n");
                 write!(f, "{{\n{list}\n}}")
@@ -319,12 +319,12 @@ impl Display for Expr {
             } => {
                 let list = cases
                     .iter()
-                    .map(|x| format!("\t{x},"))
+                    .map(|x| format!("{x},"))
                     .collect::<Vec<String>>()
                     .join("\n");
                 write!(
                     f,
-                    "{} is {{\n{list}\n\t-> {}}}",
+                    "{} is {{\n{list}\n-> {}}}",
                     expr.as_ref(),
                     default.as_ref()
                 )

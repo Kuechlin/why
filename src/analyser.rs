@@ -464,21 +464,25 @@ impl AnalyserCtx<'_> {
                 }
             };
             // if arg is function use defined type
-            match arg {
+            let arg_return = match arg {
                 Expr::Fn {
                     typedef: _,
                     block,
                     span,
                 } => {
-                    self.visit(&Expr::Fn {
+                    let expr = Expr::Fn {
                         typedef: (arg_type.clone(), span.clone()),
                         block: block.clone(),
                         span: span.clone(),
-                    });
+                    };
+                    self.visit(&expr);
+                    self.get_return_type(&expr).into_owned()
                 }
-                expr => self.visit(expr),
+                expr => {
+                    self.visit(expr);
+                    self.get_return_type(expr).into_owned()
+                }
             };
-            let arg_return = self.get_return_type(arg).into_owned();
             if !arg_type.includes(&arg_return) {
                 self.err(
                     format!("invalid arg type\nexpected: {arg_type}\nfound: {arg_return}",)

@@ -268,8 +268,17 @@ impl ExecCtx<'_> {
 
         // create context and eval args
         let mut ctx = ExecCtx::new();
-        for (i, (name, _)) in args_def.iter().enumerate() {
+        for (i, (name, typedef)) in args_def.iter().enumerate() {
             let arg = match args.get(i) {
+                Some(Expr::Fn {
+                    typedef: _,
+                    block,
+                    span,
+                }) => self.eval(&Expr::Fn {
+                    typedef: (typedef.clone(), 0..0),
+                    block: block.clone(),
+                    span: span.clone(),
+                })?,
                 Some(e) => self.eval(e)?,
                 None => return error(format!("arg {name} is mission").as_str()),
             };

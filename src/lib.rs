@@ -24,18 +24,19 @@ impl WhyErr {
     }
 }
 
+fn to_err(e: &SyntaxErr) -> WhyErr {
+    WhyErr {
+        message: e.message.to_owned(),
+        start: e.source.start,
+        end: e.source.end,
+    }
+}
+
 #[wasm_bindgen]
 pub fn analyse(value: &str) -> Vec<WhyErr> {
     match check(value) {
         Ok(_) => Vec::new(),
-        Err(err) => err
-            .iter()
-            .map(|e| WhyErr {
-                message: e.message.to_owned(),
-                start: e.source.start,
-                end: e.source.end,
-            })
-            .collect(),
+        Err(err) => err.iter().map(to_err).collect(),
     }
 }
 
@@ -69,14 +70,7 @@ pub fn why(value: &str) -> Result<JsValue, WhyErr> {
             } => JsValue::from_str(format!("{val}").as_str()),
             Value::Void => JsValue::UNDEFINED,
         }),
-        Err(err) => {
-            let e = err.last().unwrap();
-            Err(WhyErr {
-                message: e.message.to_owned(),
-                start: e.source.start,
-                end: e.source.end,
-            })
-        }
+        Err(err) => Err(to_err(err.last().unwrap())),
     }
 }
 
