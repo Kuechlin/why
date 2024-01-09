@@ -149,6 +149,7 @@ nav > div {
     border-radius: 2px;
     border: 1px dotted #abb2bf66;
     padding: 8px;
+    flex-grow: 1;
 }
 
 .docs article .title {

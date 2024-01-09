@@ -41,6 +41,7 @@ pub enum Token {
     Else,
     Is,
     Def,
+    Let,
 
     Eof,
 }
@@ -83,6 +84,7 @@ impl Display for Token {
             Token::Else => "else".to_owned(),
             Token::Is => "is".to_owned(),
             Token::Def => "def".to_owned(),
+            Token::Let => "let".to_owned(),
             Token::Eof => "".to_owned(),
         };
         write!(f, "{val}")

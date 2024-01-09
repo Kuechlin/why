@@ -69,13 +69,13 @@ impl ParserCtx<'_> {
 
     // statement
     fn statement(&mut self) -> ParserResult {
-        self.expr_def()
+        self.stmt_def()
     }
 
-    fn expr_def(&mut self) -> ParserResult {
+    fn stmt_def(&mut self) -> ParserResult {
         let start = self.start();
         if !self.is(&[Token::Def]) {
-            return self.expr_if();
+            return self.stmt_let();
         }
         let token = self.advance();
         let name = match token.0 {
@@ -94,6 +94,32 @@ impl ParserCtx<'_> {
             typedef,
             span: start..self.end(),
         })
+    }
+
+    fn stmt_let(&mut self) -> ParserResult {
+        let start = self.start();
+        if !self.is(&[Token::Let]) {
+            return self.expression();
+        }
+        let name = self.identifer()?;
+        if !self.is(&[Token::Equal]) {
+            return error("initializer expected", &name.1);
+        }
+        let expr = Box::new(self.statement()?);
+        // check end
+        if !self.is(&[Token::Semicolon]) {
+            return error("Expect ';' after statement", &self.current().1);
+        }
+        Ok(Expr::Let {
+            name,
+            expr,
+            span: start..self.end(),
+        })
+    }
+
+    // expressions
+    fn expression(&mut self) -> ParserResult {
+        self.expr_if()
     }
 
     fn expr_if(&mut self) -> ParserResult {
@@ -138,7 +164,7 @@ impl ParserCtx<'_> {
     fn expr_block(&mut self) -> ParserResult {
         let start = self.start();
         if !self.is(&[Token::LeftBrace]) {
-            return Ok(self.expression()?);
+            return Ok(self.equality()?);
         }
 
         let mut nodes = Vec::new();
@@ -155,8 +181,7 @@ impl ParserCtx<'_> {
         }
     }
 
-    // expressions
-    fn expression(&mut self) -> ParserResult {
+    fn equality(&mut self) -> ParserResult {
         // equality
         self.binary(&[Token::BangEqual, Token::EqualEqual], |n| {
             // comparisson
@@ -238,8 +263,6 @@ impl ParserCtx<'_> {
             Token::Identifier(val) => {
                 if self.check(Token::LeftParen) {
                     self.expr_call((val, current.1))?
-                } else if self.check(Token::Equal) {
-                    self.expr_let((val, current.1))?
                 } else {
                     Expr::Var((val, current.1))
                 }
@@ -343,23 +366,6 @@ impl ParserCtx<'_> {
             expr: Box::new(expr),
             cases,
             default: Box::new(default),
-            span: start..self.end(),
-        })
-    }
-
-    fn expr_let(&mut self, name: Spanned<String>) -> ParserResult {
-        let start = self.start();
-        if !self.is(&[Token::Equal]) {
-            return error("initializer expected", &name.1);
-        }
-        let expr = Box::new(self.statement()?);
-        // check end
-        if !self.is(&[Token::Semicolon]) {
-            return error("Expect ';' after statement", &self.current().1);
-        }
-        Ok(Expr::Let {
-            name,
-            expr,
             span: start..self.end(),
         })
     }

@@ -57,7 +57,7 @@ Match {
 }
 
 Let {
-  Identifier "=" statement semi
+  kw<"let"> Identifier "=" statement semi
 }
 
 Fn {

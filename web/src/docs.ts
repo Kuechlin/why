@@ -22,9 +22,57 @@ export function Docs() {
         article(
             div({ class: "title" }, "variables"),
             div(s("comment", "- immutable\n- must be initialized")),
-            div(s("variable", "a"), span(" = "), s("number", "5")),
-            div(s("variable", "b"), span(" = "), s("string", '"hello"')),
-            div(s("variable", "c"), span(" = "), s("boolean", "true"))
+            div(
+                s("keyword", "let "),
+                s("variable", "a"),
+                span(" = "),
+                s("number", "5")
+            ),
+            div(
+                s("keyword", "let "),
+                s("variable", "b"),
+                span(" = "),
+                s("string", '"hello"')
+            ),
+            div(
+                s("keyword", "let "),
+                s("variable", "c"),
+                span(" = "),
+                s("boolean", "true")
+            )
+        ),
+        article(
+            div({ class: "title" }, "types"),
+            div(s("comment", "default types")),
+            div(
+                s("type", "Str"),
+                span(" | "),
+                s("type", "Num"),
+                span(" | "),
+                s("type", "Bool")
+            ),
+            div(s("comment", "define custom types")),
+            div(
+                s("keyword", "def "),
+                s("type", "Union"),
+                span(" : ("),
+                s("type", "Str"),
+                span(" | "),
+                s("type", "Num"),
+                span(");")
+            ),
+            div(
+                s("keyword", "def "),
+                s("type", "SomeFunction"),
+                span(" : ("),
+                s("keyword", "fn "),
+                s("variable", "a"),
+                span(": "),
+                s("type", "Num"),
+                s("keyword", " -> "),
+                s("type", "Num"),
+                span(");")
+            )
         ),
         article(
             div({ class: "title" }, "compare"),
@@ -81,6 +129,7 @@ export function Docs() {
             div(s("comment", "- functions are values")),
             div(s("comment", "- functions are pure")),
             div(
+                s("keyword", "let "),
                 s("variable", "add"),
                 span(" = "),
                 s("keyword", "fn "),
@@ -117,6 +166,7 @@ export function Docs() {
             div(s("comment", "kotlin style lambdas")),
             div(s("comment", "args have same name as in type definition")),
             div(
+                s("keyword", "let "),
                 s("variable", "wrapper"),
                 span(" = "),
                 s("keyword", "fn "),
@@ -210,31 +260,6 @@ export function Docs() {
                 span(",")
             ),
             div(s("keyword", "}"))
-        ),
-        article(
-            div({ class: "title" }, "types"),
-            div(s("comment", "define custom types")),
-            div(
-                s("keyword", "def "),
-                s("type", "Union"),
-                span(" : ("),
-                s("type", "Str"),
-                span(" | "),
-                s("type", "Num"),
-                span(");")
-            ),
-            div(
-                s("keyword", "def "),
-                s("type", "SomeFunction"),
-                span(" : ("),
-                s("keyword", "fn "),
-                s("variable", "a"),
-                span(": "),
-                s("type", "Num"),
-                s("keyword", " -> "),
-                s("type", "Num"),
-                span(");")
-            )
         )
     );
 }
