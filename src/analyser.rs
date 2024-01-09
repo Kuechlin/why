@@ -375,7 +375,7 @@ impl AnalyserCtx<'_> {
                     then,
                     span: _,
                 } => {
-                    if !expr_type.includes(&typedef.0) {
+                    if !&typedef.0.includes(&expr_type) {
                         self.err(
                             format!(
                                 "expression is allways false, type {} is not included in {}",
