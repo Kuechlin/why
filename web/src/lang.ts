@@ -14,6 +14,10 @@ import { parser } from "./y.grammar";
 
 const YLang = LRLanguage.define({
     name: "why",
+    languageData: {
+        closeBrackets: {},
+        wordChars: ["if", "is", "let", "def", "fn"],
+    },
     parser: parser.configure({
         props: [
             indentNodeProp.add({
@@ -62,7 +66,7 @@ export const YLangLint = linter((view) => {
     }));
 });
 
-const keywords = ["fn", "Num", "Str", "Bool"];
+const keywords = ["let", "def", "fn", "Num", "Str", "Bool"];
 
 function ylangCompletions(context: CompletionContext): CompletionResult | null {
     let check = context.matchBefore(/: ?/) ?? context.matchBefore(/\-> ?/);
@@ -87,27 +91,28 @@ function ylangCompletions(context: CompletionContext): CompletionResult | null {
     }
     const word = context.matchBefore(/\w*/);
     if (!word || (word.from == word.to && !context.explicit)) return null;
+
+    if (word.text === "")
+        return {
+            from: word.from,
+            options: [
+                {
+                    label: "let",
+                    type: "keyword",
+                },
+                {
+                    label: "def",
+                    type: "keyword",
+                },
+            ],
+        };
+
     if (keywords.some((k) => k.startsWith(word.text))) {
         return {
             from: word.from,
             options: keywords.map((label) => ({ label, type: "keyword" })),
         };
     }
-    return {
-        from: word.from,
-        options: [
-            {
-                label: "def",
-                type: "keyword",
-            },
-            {
-                label: "if",
-                type: "keyword",
-            },
-            {
-                label: "fn",
-                type: "keyword",
-            },
-        ],
-    };
+
+    return null;
 }

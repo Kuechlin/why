@@ -1,4 +1,5 @@
 import van from "vanjs-core";
+import { About } from "./about";
 import { Docs } from "./docs";
 import { Editor } from "./editor";
 
@@ -7,7 +8,7 @@ const { div, nav } = van.tags;
 const tabs = [
     { key: "#run", title: "Editor", content: Editor },
     { key: "#docs", title: "Documentation", content: Docs },
-    { key: "#why", title: "Why", content: div },
+    { key: "#why", title: "Why", content: About },
 ];
 
 function initial() {
