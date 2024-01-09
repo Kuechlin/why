@@ -26,19 +26,37 @@ export function Docs() {
                 s("keyword", "let "),
                 s("variable", "a"),
                 span(" = "),
-                s("number", "5")
+                s("number", "5"),
+                span(";")
             ),
             div(
                 s("keyword", "let "),
                 s("variable", "b"),
                 span(" = "),
-                s("string", '"hello"')
+                s("string", '"hello"'),
+                span(";")
             ),
             div(
                 s("keyword", "let "),
                 s("variable", "c"),
                 span(" = "),
-                s("boolean", "true")
+                s("boolean", "true"),
+                span(";")
+            ),
+            div(
+                s("keyword", "let "),
+                s("variable", "d"),
+                span(" = "),
+                s("keyword", "new { "),
+                s("variable", "a"),
+                s("keyword", " = "),
+                s("number", "5"),
+                span(", "),
+                s("variable", "b"),
+                s("keyword", " = "),
+                s("number", "8"),
+                s("keyword", " }"),
+                span(";")
             )
         ),
         article(
@@ -72,6 +90,23 @@ export function Docs() {
                 s("keyword", " -> "),
                 s("type", "Num"),
                 span(");")
+            ),
+            div(s("comment", "define objects")),
+            div(
+                s("keyword", "def "),
+                s("type", "Test"),
+                span(" : "),
+                s("type", "{ "),
+                s("variable", "a"),
+                span(": "),
+                s("type", "Num"),
+                span(", "),
+                s("variable", "a"),
+                span(": "),
+                s("type", "Num"),
+                s("type", " }"),
+                span(";")
+                //def Test : { a: Num, b: Num, };
             )
         ),
         article(

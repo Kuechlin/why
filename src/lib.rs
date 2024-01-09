@@ -57,19 +57,27 @@ fn check(value: &str) -> Result<(), Vec<SyntaxErr>> {
     }
 }
 
+fn value_to_js(value: &Value) -> JsValue {
+    match value {
+        Value::Number(val) => JsValue::from_f64(*val),
+        Value::String(val) => JsValue::from_str(val),
+        Value::Bool(val) => JsValue::from_bool(*val),
+        Value::Fn {
+            typedef: _,
+            expr: _,
+        } => JsValue::from_str(format!("{value}").as_str()),
+        Value::Obj {
+            typedef: _,
+            entries: _,
+        } => JsValue::from_str(format!("{value}").as_str()),
+        Value::Void => JsValue::UNDEFINED,
+    }
+}
+
 #[wasm_bindgen]
 pub fn why(value: &str) -> Result<JsValue, WhyErr> {
     match eval(value) {
-        Ok(val) => Ok(match &val {
-            Value::Number(val) => JsValue::from_f64(*val),
-            Value::String(val) => JsValue::from_str(val),
-            Value::Bool(val) => JsValue::from_bool(*val),
-            Value::Fn {
-                typedef: _,
-                expr: _,
-            } => JsValue::from_str(format!("{val}").as_str()),
-            Value::Void => JsValue::UNDEFINED,
-        }),
+        Ok(val) => Ok(value_to_js(&val)),
         Err(err) => Err(to_err(err.last().unwrap())),
     }
 }

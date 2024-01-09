@@ -1,6 +1,9 @@
+use std::collections::HashMap;
+
 use crate::types::{
-    exprs::{BinaryOp, Expr, Type, UnaryOp},
+    exprs::{BinaryOp, Expr, UnaryOp},
     tokens::Token,
+    types::Type,
     values::Value,
     Span, Spanned, SyntaxErr,
 };
@@ -119,7 +122,44 @@ impl ParserCtx<'_> {
 
     // expressions
     fn expression(&mut self) -> ParserResult {
-        self.expr_if()
+        self.expr_new()
+    }
+
+    fn expr_new(&mut self) -> ParserResult {
+        let start = self.start();
+        if !self.is(&[Token::New]) {
+            return Ok(self.expr_if()?);
+        }
+        // object
+        if self.is(&[Token::LeftBrace]) {
+            let mut entries = HashMap::new();
+            while !self.check(Token::RightBrace) && !self.is_end() {
+                // get name
+                let name = self.identifer()?;
+                // get type
+                if !self.is(&[Token::Equal]) {
+                    return Err(SyntaxErr {
+                        message: "type definition expected".to_owned(),
+                        source: self.current().1,
+                    });
+                }
+                let expr = self.expression()?;
+                entries.insert(name, expr);
+                // break when no comma
+                if !self.is(&[Token::Comma]) {
+                    break;
+                }
+            }
+            if !self.is(&[Token::RightBrace]) {
+                return error("Expect '}' at end of block", &self.current().1);
+            }
+            Ok(Expr::New {
+                entries,
+                span: start..self.end(),
+            })
+        } else {
+            error("invalid new expression", &self.current().1)
+        }
     }
 
     fn expr_if(&mut self) -> ParserResult {
@@ -264,7 +304,7 @@ impl ParserCtx<'_> {
                 if self.check(Token::LeftParen) {
                     self.expr_call((val, current.1))?
                 } else {
-                    Expr::Var((val, current.1))
+                    self.expr_var((val, current.1))?
                 }
             }
             Token::LeftParen => {
@@ -279,6 +319,15 @@ impl ParserCtx<'_> {
         };
         // check if is match expression
         self.expr_is(expr)
+    }
+
+    fn expr_var(&mut self, name: Spanned<String>) -> ParserResult {
+        let mut then: Option<Box<Expr>> = None;
+        if self.is(&[Token::Dot]) {
+            then = Some(Box::new(self.primary()?));
+        }
+        let span = name.1.start..self.end();
+        Ok(Expr::Var { name, then, span })
     }
 
     fn expr_is(&mut self, expr: Expr) -> ParserResult {
@@ -371,7 +420,6 @@ impl ParserCtx<'_> {
     }
 
     fn expr_call(&mut self, name: Spanned<String>) -> ParserResult {
-        let start = self.start();
         if !self.is(&[Token::LeftParen]) {
             return error("Expect '(' after identifer", &name.1);
         }
@@ -399,11 +447,8 @@ impl ParserCtx<'_> {
         if !self.is(&[Token::RightParen]) {
             return error("Expect ')' at end of args", &self.current().1);
         }
-        Ok(Expr::Call {
-            name,
-            args,
-            span: start..self.end(),
-        })
+        let span = name.1.start..self.end();
+        Ok(Expr::Call { name, args, span })
     }
 
     fn identifer(&mut self) -> Result<Spanned<String>, SyntaxErr> {
@@ -417,7 +462,7 @@ impl ParserCtx<'_> {
     // types
     fn typedef(&mut self) -> TypeResult {
         if !self.is(&[Token::LeftParen]) {
-            return self.type_value();
+            return self.type_obj();
         }
         let t = self.type_fn()?;
         if self.is(&[Token::RightParen]) {
@@ -428,6 +473,38 @@ impl ParserCtx<'_> {
                 source: self.current().1.clone(),
             })
         }
+    }
+
+    fn type_obj(&mut self) -> TypeResult {
+        let start = self.start();
+        if !self.is(&[Token::LeftBrace]) {
+            return self.type_value();
+        }
+        let mut entries = HashMap::new();
+        while !self.check(Token::RightBrace) && !self.is_end() {
+            // get name
+            let name = self.identifer()?;
+            // get type
+            if !self.is(&[Token::DotDot]) {
+                return Err(SyntaxErr {
+                    message: "type definition expected".to_owned(),
+                    source: self.current().1,
+                });
+            }
+            let typedef = self.typedef()?;
+            entries.insert(name.0, typedef.0);
+            // break when no comma
+            if !self.is(&[Token::Comma]) {
+                break;
+            }
+        }
+        if !self.is(&[Token::RightBrace]) {
+            return Err(SyntaxErr {
+                message: "Expect '}' at end of obj".to_owned(),
+                source: self.current().1,
+            });
+        }
+        Ok((Type::Obj(entries), start..self.end()))
     }
 
     fn type_fn(&mut self) -> TypeResult {

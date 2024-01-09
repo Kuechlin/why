@@ -1,11 +1,7 @@
 use std::{borrow::Cow, collections::HashMap};
 
 use crate::types::{
-    exprs::BinaryOp,
-    exprs::UnaryOp,
-    exprs::{Expr, Type},
-    values::Value,
-    RuntimeErr,
+    exprs::BinaryOp, exprs::Expr, exprs::UnaryOp, types::Type, values::Value, RuntimeErr, Spanned,
 };
 
 type EvalResult = Result<Value, RuntimeErr>;
@@ -89,6 +85,10 @@ impl ExecCtx<'_> {
             Value::String(_) => Cow::Owned(Type::String),
             Value::Bool(_) => Cow::Owned(Type::Bool),
             Value::Fn { typedef, expr: _ } => self.resolve_type(typedef),
+            Value::Obj {
+                typedef,
+                entries: _,
+            } => self.resolve_type(typedef),
             Value::Void => Cow::Owned(Type::Void),
         }
     }
@@ -132,7 +132,11 @@ impl ExecCtx<'_> {
                 typedef,
                 span: _,
             } => self.eval_fn(block, &typedef.0),
-            Expr::Var(name) => Ok(self.get_value(&name.0)),
+            Expr::Var {
+                name,
+                then,
+                span: _,
+            } => self.eval_var(&name.0, then),
             Expr::Literal(value) => Ok(value.0.clone()),
             Expr::Unary { op, expr, span: _ } => self.eval_unary(&op.0, expr),
             Expr::Binary {
@@ -157,6 +161,7 @@ impl ExecCtx<'_> {
                 default,
                 span: _,
             } => self.eval_is(expr, cases, default),
+            Expr::New { entries, span: _ } => self.eval_new(entries),
             _ => error("Invalid Expression"),
         }
     }
@@ -179,6 +184,43 @@ impl ExecCtx<'_> {
     fn eval_def(&mut self, name: &str, typedef: &Type) -> EvalResult {
         self.set_type(name, typedef.clone())?;
         Ok(Value::Void)
+    }
+
+    fn eval_var(&mut self, name: &str, then: &Option<Box<Expr>>) -> EvalResult {
+        let value = self.get_value(name);
+
+        match then {
+            Some(then) => {
+                let mut ctx = ExecCtx {
+                    enclosing: None,
+                    state: match value {
+                        Value::Obj {
+                            typedef: _,
+                            entries,
+                        } => entries,
+                        _ => HashMap::new(),
+                    },
+                    types: HashMap::new(),
+                };
+                ctx.eval(then)
+            }
+            None => Ok(value),
+        }
+    }
+
+    fn eval_new(&mut self, entries: &HashMap<Spanned<String>, Expr>) -> EvalResult {
+        let mut types = HashMap::new();
+        let mut values = HashMap::new();
+        for ((name, _), expr) in entries {
+            let value = self.eval(expr)?;
+            let typedef = self.type_of(&value).into_owned();
+            values.insert(name.clone(), value);
+            types.insert(name.clone(), typedef);
+        }
+        Ok(Value::Obj {
+            typedef: Type::Obj(types),
+            entries: values,
+        })
     }
 
     fn eval_if(

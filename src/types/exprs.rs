@@ -1,25 +1,15 @@
-use std::fmt::Display;
+use std::{collections::HashMap, fmt::Display};
 
-use super::{values::Value, Span, Spanned};
-
-#[derive(PartialEq, Clone)]
-pub enum Type {
-    Number,
-    String,
-    Bool,
-    Fn {
-        args: Vec<(String, Type)>,
-        returns: Box<Type>,
-    },
-    Or(Vec<Self>),
-    Def(String),
-    Void,
-}
+use super::{types::Type, values::Value, Span, Spanned};
 
 #[derive(Clone, PartialEq)]
 pub enum Expr {
     Literal(Spanned<Value>),
-    Var(Spanned<String>),
+    Var {
+        name: Spanned<String>,
+        then: Option<Box<Self>>,
+        span: Span,
+    },
     Unary {
         op: Spanned<UnaryOp>,
         expr: Box<Self>,
@@ -78,6 +68,10 @@ pub enum Expr {
         then: Box<Self>,
         span: Span,
     },
+    New {
+        entries: HashMap<Spanned<String>, Expr>,
+        span: Span,
+    },
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -104,7 +98,11 @@ impl Expr {
     pub fn get_span(&self) -> &Span {
         match self {
             Expr::Literal(x) => &x.1,
-            Expr::Var(x) => &x.1,
+            Expr::Var {
+                name: _,
+                then: _,
+                span,
+            } => span,
             Expr::Unary {
                 op: _,
                 expr: _,
@@ -160,61 +158,7 @@ impl Expr {
                 then: _,
                 span,
             } => span,
-        }
-    }
-}
-
-impl Type {
-    pub fn combine(&self, other: &Self) -> Type {
-        match (self, other) {
-            (Type::Or(left), Type::Or(right)) => {
-                let mut types = left.clone();
-                for t in right {
-                    if !types.contains(t) {
-                        types.push(t.clone());
-                    }
-                }
-                Type::Or(types)
-            }
-            (left, Type::Or(right)) => {
-                if right.contains(left) {
-                    return Type::Or(right.clone());
-                }
-                let mut types = right.clone();
-                types.push(left.clone());
-                Type::Or(types)
-            }
-            (Type::Or(left), right) => {
-                if left.contains(right) {
-                    return Type::Or(left.clone());
-                }
-                let mut types = left.clone();
-                types.push(right.clone());
-                Type::Or(types)
-            }
-            (left, right) => {
-                if *left == *right {
-                    left.clone()
-                } else {
-                    Type::Or(vec![left.clone(), right.clone()])
-                }
-            }
-        }
-    }
-
-    pub fn includes(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Type::Or(left), Type::Or(right)) => {
-                for r in right {
-                    if !left.contains(r) {
-                        return false;
-                    }
-                }
-                true
-            }
-            (_, Type::Or(_)) => false,
-            (Type::Or(left), right) => left.contains(right),
-            (left, right) => *left == *right,
+            Expr::New { entries: _, span } => span,
         }
     }
 }
@@ -256,7 +200,14 @@ impl Display for UnaryOp {
 impl Display for Expr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Expr::Var(name) => write!(f, "{}", name.0),
+            Expr::Var {
+                name,
+                span: _,
+                then,
+            } => match then {
+                Some(expr) => write!(f, "{}.{}", name.0, expr.as_ref()),
+                None => write!(f, "{}", name.0),
+            },
             Expr::Literal(val) => write!(f, "{}", val.0.to_string()),
             Expr::Unary { op, expr, span: _ } => write!(f, "{}{expr}", op.0),
             Expr::Binary {
@@ -340,6 +291,14 @@ impl Display for Expr {
                 then,
                 span: _,
             } => write!(f, ": {} -> {}", typedef.0, then.as_ref()),
+            Expr::New { entries, span: _ } => {
+                let list = entries
+                    .iter()
+                    .map(|(name, value)| format!("{} = {value},", name.0))
+                    .collect::<Vec<String>>()
+                    .join("\n");
+                write!(f, "{{\n{list}\n}}")
+            }
         }
     }
 }

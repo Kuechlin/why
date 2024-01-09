@@ -1,13 +1,20 @@
-use std::fmt::Display;
+use std::{collections::HashMap, fmt::Display};
 
-use super::exprs::{Expr, Type};
+use super::{exprs::Expr, types::Type};
 
 #[derive(Clone, PartialEq)]
 pub enum Value {
     Number(f64),
     String(String),
     Bool(bool),
-    Fn { typedef: Type, expr: Box<Expr> },
+    Fn {
+        typedef: Type,
+        expr: Box<Expr>,
+    },
+    Obj {
+        typedef: Type,
+        entries: HashMap<String, Value>,
+    },
     Void,
 }
 
@@ -21,6 +28,10 @@ impl Value {
                 expr: _,
                 typedef: _,
             } => true,
+            Value::Obj {
+                typedef: _,
+                entries: _,
+            } => true,
             Value::Void => false,
         }
     }
@@ -30,6 +41,10 @@ impl Value {
             Value::String(_) => Type::String,
             Value::Bool(_) => Type::Bool,
             Value::Fn { expr: _, typedef } => typedef.clone(),
+            Value::Obj {
+                typedef,
+                entries: _,
+            } => typedef.clone(),
             Value::Void => Type::Void,
         }
     }
@@ -46,42 +61,6 @@ impl PartialOrd for Value {
     }
 }
 
-impl Display for Type {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let val = match self {
-            Type::Number => "Num",
-            Type::String => "Str",
-            Type::Bool => "Bool",
-            Type::Void => "Void",
-            Type::Def(val) => val,
-            Type::Or(types) => {
-                return write!(
-                    f,
-                    "({})",
-                    types
-                        .iter()
-                        .map(|x| format!("{}", x))
-                        .collect::<Vec<String>>()
-                        .join(" | ")
-                )
-            }
-            Type::Fn { args, returns } => {
-                let mut list = args
-                    .iter()
-                    .map(|a| format!("{}: {}", a.0, a.1))
-                    .collect::<Vec<String>>()
-                    .join(", ");
-
-                if !list.is_empty() {
-                    list += " ";
-                }
-                return write!(f, "fn {list}-> {}", returns);
-            }
-        };
-        write!(f, "{val}")
-    }
-}
-
 impl Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -89,6 +68,17 @@ impl Display for Value {
             Value::String(x) => write!(f, "\"{x}\""),
             Value::Bool(x) => write!(f, "{x}"),
             Value::Fn { typedef, expr } => write!(f, "{typedef} {expr}"),
+            Value::Obj {
+                typedef: _,
+                entries,
+            } => {
+                let list = entries
+                    .iter()
+                    .map(|(name, value)| format!("{name} = {value},"))
+                    .collect::<Vec<String>>()
+                    .join("\n");
+                write!(f, "{{\n{list}\n}}")
+            }
             Value::Void => write!(f, "_"),
         }
     }

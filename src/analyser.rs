@@ -1,8 +1,8 @@
 use std::{borrow::Cow, collections::HashMap};
 
 use crate::types::{
-    exprs::Type,
     exprs::{BinaryOp, Expr, UnaryOp},
+    types::Type,
     Span, Spanned, SyntaxErr,
 };
 
@@ -68,9 +68,28 @@ impl AnalyserCtx<'_> {
     }
     fn get_return_type(&mut self, expr: &Expr) -> Cow<'_, Type> {
         match expr {
-            Expr::Var(name) => match self.get(&name.0) {
-                Some(val) => self.resolve_type(&val, &name.1),
-                None => {
+            Expr::Var {
+                name,
+                then,
+                span: _,
+            } => match (self.get(&name.0), then) {
+                (Some(Type::Obj(entries)), Some(then)) => {
+                    // get object property
+                    let mut ctx = AnalyserCtx {
+                        state: entries,
+                        enclosing: None,
+                        errors: Vec::new(),
+                    };
+                    let return_type = ctx.get_return_type(then).into_owned();
+                    self.errors.append(&mut ctx.errors);
+                    Cow::Owned(return_type)
+                }
+                (Some(_), Some(then)) | (None, Some(then)) => {
+                    self.err("variable is not defined", &then.get_span());
+                    Cow::Owned(Type::Void)
+                }
+                (Some(val), None) => self.resolve_type(&val, &name.1),
+                (None, None) => {
                     self.err("variable is not defined", &name.1);
                     Cow::Owned(Type::Void)
                 }
@@ -177,6 +196,14 @@ impl AnalyserCtx<'_> {
                 then,
                 span: _,
             } => self.get_return_type(&then),
+            Expr::New { entries, span: _ } => {
+                let mut types = HashMap::new();
+                for (key, expr) in entries {
+                    let return_type = self.get_return_type(expr);
+                    types.insert(key.0.clone(), return_type.into_owned());
+                }
+                Cow::Owned(Type::Obj(types))
+            }
         }
     }
 
@@ -240,6 +267,7 @@ impl AnalyserCtx<'_> {
                 default,
                 span: _,
             } => self.visit_is(expr, cases, default),
+            Expr::New { entries, span: _ } => self.visit_new(entries),
             _ => self.visit_expr(expr),
         }
     }
@@ -259,6 +287,12 @@ impl AnalyserCtx<'_> {
         let res = self.set(&name.0, typedef);
         if res.is_err() {
             self.err(res.unwrap_err(), &name.1);
+        }
+    }
+
+    fn visit_new(&mut self, entries: &HashMap<Spanned<String>, Expr>) {
+        for (_, expr) in entries {
+            self.visit(expr);
         }
     }
 
@@ -372,7 +406,11 @@ impl AnalyserCtx<'_> {
     fn visit_expr(&mut self, expr: &Expr) {
         match expr {
             Expr::Literal(_) => (),
-            Expr::Var(name) => self.visit_identifier(name),
+            Expr::Var {
+                name,
+                span: _,
+                then,
+            } => self.visit_variable(name, then),
             Expr::Call {
                 name,
                 args,
@@ -434,9 +472,25 @@ impl AnalyserCtx<'_> {
         }
     }
 
-    fn visit_identifier(&mut self, name: &Spanned<String>) {
-        if self.get(&name.0).is_none() {
-            self.err("variable not defined", &name.1);
+    fn visit_variable(&mut self, name: &Spanned<String>, then: &Option<Box<Expr>>) {
+        let var = match self.get(&name.0) {
+            Some(x) => x,
+            None => return self.err("variable not defined", &name.1),
+        };
+        match then {
+            None => (),
+            Some(then) => {
+                let mut ctx = AnalyserCtx {
+                    enclosing: None,
+                    errors: Vec::new(),
+                    state: match var {
+                        Type::Obj(entries) => entries,
+                        _ => HashMap::new(),
+                    },
+                };
+                ctx.visit(then);
+                self.errors.append(&mut ctx.errors);
+            }
         }
     }
 
