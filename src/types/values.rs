@@ -74,10 +74,10 @@ impl Display for Value {
             } => {
                 let list = entries
                     .iter()
-                    .map(|(name, value)| format!("{name} = {value},"))
+                    .map(|(name, value)| format!("{name} = {value}"))
                     .collect::<Vec<String>>()
-                    .join("\n");
-                write!(f, "{{\n{list}\n}}")
+                    .join(", ");
+                write!(f, "{{ {list} }}")
             }
             Value::Void => write!(f, "_"),
         }

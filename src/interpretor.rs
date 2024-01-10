@@ -1,7 +1,8 @@
-use std::{borrow::Cow, collections::HashMap};
+use std::collections::HashMap;
 
 use crate::types::{
-    exprs::BinaryOp, exprs::Expr, exprs::UnaryOp, types::Type, values::Value, RuntimeErr, Spanned,
+    context::Ctx, exprs::BinaryOp, exprs::Expr, exprs::UnaryOp, types::Type, values::Value,
+    RuntimeErr, Spanned,
 };
 
 type EvalResult = Result<Value, RuntimeErr>;
@@ -12,105 +13,13 @@ fn error(msg: &str) -> EvalResult {
     })
 }
 
-pub struct ExecCtx<'a> {
-    pub enclosing: Option<&'a ExecCtx<'a>>,
-    pub types: HashMap<String, Type>,
-    pub state: HashMap<String, Value>,
-}
-impl ExecCtx<'_> {
-    pub fn new<'a>() -> ExecCtx<'a> {
-        ExecCtx {
-            enclosing: None,
-            types: HashMap::new(),
-            state: HashMap::new(),
-        }
-    }
+impl Ctx<'_> {
     pub fn execute(&mut self, stmts: &Vec<Expr>) -> EvalResult {
         let mut result = Value::Void;
         for stmt in stmts {
             result = self.eval(stmt)?;
         }
         Ok(result)
-    }
-
-    fn derive(&mut self) -> ExecCtx {
-        ExecCtx {
-            enclosing: Some(self),
-            types: HashMap::new(),
-            state: HashMap::new(),
-        }
-    }
-    fn get_value(&self, key: &str) -> Value {
-        match self.state.get(key) {
-            Some(val) => val.to_owned(),
-            None => match self.enclosing {
-                Some(parent) => parent.get_value(key),
-                None => Value::Void,
-            },
-        }
-    }
-    fn set_value(&mut self, key: &str, val: Value) -> Result<(), RuntimeErr> {
-        if self.state.contains_key(key) {
-            Err(RuntimeErr {
-                message: "can't reassign a value to immutable variable".to_owned(),
-            })
-        } else {
-            let _ = self.state.insert(key.to_string(), val);
-            Ok(())
-        }
-    }
-    fn get_type(&self, key: &str) -> Type {
-        match self.types.get(key) {
-            Some(val) => val.to_owned(),
-            None => match self.enclosing {
-                Some(parent) => parent.get_type(key),
-                None => Type::Void,
-            },
-        }
-    }
-    fn set_type(&mut self, key: &str, val: Type) -> Result<(), RuntimeErr> {
-        if self.types.contains_key(key) {
-            Err(RuntimeErr {
-                message: "can't reassign a value to immutable variable".to_owned(),
-            })
-        } else {
-            let _ = self.types.insert(key.to_string(), val);
-            Ok(())
-        }
-    }
-
-    fn type_of(&self, val: &Value) -> Cow<'_, Type> {
-        match val {
-            Value::Number(_) => Cow::Owned(Type::Number),
-            Value::String(_) => Cow::Owned(Type::String),
-            Value::Bool(_) => Cow::Owned(Type::Bool),
-            Value::Fn { typedef, expr: _ } => self.resolve_type(typedef),
-            Value::Obj {
-                typedef,
-                entries: _,
-            } => self.resolve_type(typedef),
-            Value::Void => Cow::Owned(Type::Void),
-        }
-    }
-
-    fn resolve_type(&self, typedef: &Type) -> Cow<'_, Type> {
-        match typedef {
-            Type::Def(name) => self.resolve_type(&self.get_type(name)),
-            Type::Or(types) => Cow::Owned(Type::Or(
-                types
-                    .iter()
-                    .map(|t| self.resolve_type(t).into_owned())
-                    .collect(),
-            )),
-            Type::Fn { args, returns } => Cow::Owned(Type::Fn {
-                args: args
-                    .iter()
-                    .map(|t| (t.0.clone(), self.resolve_type(&t.1).into_owned()))
-                    .collect(),
-                returns: Box::new(self.resolve_type(&returns).into_owned()),
-            }),
-            _ => Cow::Owned(typedef.clone()),
-        }
     }
 
     pub fn eval(&mut self, input: &Expr) -> EvalResult {
@@ -181,12 +90,12 @@ impl ExecCtx<'_> {
 
     fn eval_let(&mut self, name: &str, expr: &Box<Expr>) -> EvalResult {
         let value = self.eval(expr)?;
-        self.set_value(name, value)?;
+        self.set_value(name, value);
         Ok(Value::Void)
     }
 
     fn eval_def(&mut self, name: &str, typedef: &Type) -> EvalResult {
-        self.set_type(name, typedef.clone())?;
+        self.set_type(name, typedef.clone());
         Ok(Value::Void)
     }
 
@@ -195,17 +104,16 @@ impl ExecCtx<'_> {
 
         match then {
             Some(then) => {
-                let mut ctx = ExecCtx {
-                    enclosing: None,
-                    state: match value {
+                let mut ctx = Ctx::new(
+                    None,
+                    match value {
                         Value::Obj {
                             typedef: _,
                             entries,
-                        } => entries,
-                        _ => HashMap::new(),
+                        } => Some(entries),
+                        _ => None,
                     },
-                    types: HashMap::new(),
-                };
+                );
                 ctx.eval(then)
             }
             None => Ok(value),
@@ -221,7 +129,7 @@ impl ExecCtx<'_> {
         let mut values = HashMap::new();
         for ((name, _), expr) in entries {
             let value = self.eval(expr)?;
-            let typedef = self.type_of(&value).into_owned();
+            let typedef = self.type_of(&value);
             values.insert(name.clone(), value);
             types.insert(name.clone(), typedef);
         }
@@ -282,23 +190,29 @@ impl ExecCtx<'_> {
                     then,
                     span: _,
                 } => {
-                    let value_type = self.type_of(&value);
-                    let match_type = self.resolve_type(&typedef.0);
-
-                    if !match_type.includes(&value_type) {
-                        continue;
+                    match (
+                        self.resolve_type(&typedef.0),
+                        self.resolve_type(&self.type_of(&value)),
+                    ) {
+                        (Ok(match_type), Ok(value_type)) => {
+                            if value_type.includes(&match_type) {
+                                then
+                            } else {
+                                continue;
+                            }
+                        }
+                        _ => continue,
                     }
-                    then
                 }
                 _ => continue,
             };
             let mut ctx = self.derive();
-            ctx.set_value("it", value)?;
+            let _ = ctx.set_value("it", value);
             return ctx.eval(then);
         }
 
         let mut ctx = self.derive();
-        ctx.set_value("it", value)?;
+        ctx.set_value("it", value);
         return ctx.eval(default);
     }
 
@@ -320,7 +234,7 @@ impl ExecCtx<'_> {
         };
 
         // create context and eval args
-        let mut ctx = ExecCtx::new();
+        let mut args_state = HashMap::new();
         for (i, (name, typedef)) in args_def.iter().enumerate() {
             let arg = match args.get(i) {
                 Some(Expr::Fn {
@@ -335,9 +249,12 @@ impl ExecCtx<'_> {
                 Some(e) => self.eval(e)?,
                 None => return error(format!("arg {name} is mission").as_str()),
             };
-
-            ctx.set_value(name, arg)?;
+            let _ = args_state.insert(name.to_owned(), arg);
         }
+        let mut ctx = match self.get_let_ctx(name) {
+            Some(ctx) => ctx.derive_with_state(args_state),
+            None => return error(format!("no context found for {name}").as_str()),
+        };
 
         ctx.eval(fn_expr.as_ref())
     }

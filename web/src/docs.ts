@@ -161,8 +161,7 @@ export function Docs() {
         ),
         article(
             div({ class: "title" }, "functions"),
-            div(s("comment", "- functions are values")),
-            div(s("comment", "- functions are pure")),
+            div(s("comment", "functions are values")),
             div(
                 s("keyword", "let "),
                 s("variable", "add"),

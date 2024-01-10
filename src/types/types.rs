@@ -6,10 +6,10 @@ pub enum Type {
     String,
     Bool,
     Fn {
-        args: Vec<(String, Type)>,
-        returns: Box<Type>,
+        args: Vec<(String, Self)>,
+        returns: Box<Self>,
     },
-    Obj(HashMap<String, Type>),
+    Obj(HashMap<String, Self>),
     Or(Vec<Self>),
     Def(String),
     Void,
@@ -54,6 +54,7 @@ impl Type {
     }
 
     pub fn includes(&self, other: &Self) -> bool {
+        println!("{self} {other}");
         match (self, other) {
             (Type::Or(left), Type::Or(right)) => {
                 let l = Type::Or(left.to_vec());
@@ -73,7 +74,24 @@ impl Type {
                 }
                 false
             }
-            (left, right) => *left == *right,
+            (Type::Obj(left), Type::Obj(right)) => {
+                for (name, r_type) in right {
+                    match left.get(name) {
+                        Some(l_type) => {
+                            if !l_type.includes(r_type) {
+                                return false;
+                            }
+                        }
+                        None => return false,
+                    }
+                }
+                true
+            }
+            (Type::String, Type::String) => true,
+            (Type::Number, Type::Number) => true,
+            (Type::Bool, Type::Bool) => true,
+            (Type::Void, Type::Void) => true,
+            _ => false,
         }
     }
 }
@@ -166,10 +184,10 @@ impl Display for Type {
             Type::Obj(entries) => {
                 let list = entries
                     .iter()
-                    .map(|(name, value)| format!("{name}: {value},"))
+                    .map(|(name, value)| format!("{name}: {value}"))
                     .collect::<Vec<String>>()
-                    .join("\n");
-                return write!(f, "{{\n{list}\n}}");
+                    .join(", ");
+                return write!(f, "{{ {list} }}");
             }
         };
         write!(f, "{val}")

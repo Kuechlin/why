@@ -29,7 +29,7 @@ use std::io::{self, Write};
 use colored::Colorize;
 use types::SyntaxErr;
 
-use crate::{analyser::AnalyserCtx, interpretor::ExecCtx, types::values::Value};
+use crate::types::{context::Ctx, values::Value};
 
 mod analyser;
 mod interpretor;
@@ -53,8 +53,7 @@ fn main() {
 "
         .blue()
     );
-    let mut analyser = AnalyserCtx::new();
-    let mut interpretor = ExecCtx::new();
+    let mut ctx = Ctx::new(None, None);
     let mut stdout = io::stdout();
     let stdin = io::stdin();
     loop {
@@ -81,7 +80,7 @@ fn main() {
             }
         };
 
-        match analyser.analyse(&stmts) {
+        match ctx.analyse(&stmts) {
             Ok(_) => (),
             Err(err) => {
                 for e in err {
@@ -91,7 +90,7 @@ fn main() {
             }
         };
 
-        let result = match interpretor.execute(&stmts) {
+        let result = match ctx.execute(&stmts) {
             Ok(e) => e,
             Err(err) => {
                 println!("{}{}", "error: ".red().bold(), err.message.red());

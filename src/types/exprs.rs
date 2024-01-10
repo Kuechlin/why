@@ -226,8 +226,8 @@ impl Display for Expr {
                     .iter()
                     .map(|s| format!("{s}"))
                     .collect::<Vec<String>>()
-                    .join("\n");
-                write!(f, "{{\n{list}\n}}")
+                    .join(" ");
+                write!(f, "{{ {list} }}")
             }
             Expr::Let {
                 name,
@@ -275,12 +275,12 @@ impl Display for Expr {
             } => {
                 let list = cases
                     .iter()
-                    .map(|x| format!("{x},"))
+                    .map(|x| format!("{x}"))
                     .collect::<Vec<String>>()
-                    .join("\n");
+                    .join(", ");
                 write!(
                     f,
-                    "{} is {{\n{list}\n-> {}}}",
+                    "{} is {{ {list} -> {} }}",
                     expr.as_ref(),
                     default.as_ref()
                 )
@@ -305,11 +305,11 @@ impl Display for Expr {
                     .iter()
                     .map(|(name, value)| format!("{} = {value},", name.0))
                     .collect::<Vec<String>>()
-                    .join("\n");
+                    .join(" ");
 
                 match typedef {
-                    Some(name) => write!(f, "new {} {{\n{list}\n}}", name.0),
-                    _ => write!(f, "new {{\n{list}\n}}"),
+                    Some(name) => write!(f, "new {} {{ {list} }}", name.0),
+                    _ => write!(f, "new {{ {list} }}"),
                 }
             }
         }
