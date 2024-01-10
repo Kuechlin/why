@@ -2,7 +2,7 @@ use std::{collections::HashMap, fmt::Display};
 
 use super::{types::Type, values::Value, Span, Spanned};
 
-#[derive(Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Literal(Spanned<Value>),
     Var {
@@ -75,7 +75,7 @@ pub enum Expr {
     },
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BinaryOp {
     Plus,
     Minus,
@@ -89,7 +89,7 @@ pub enum BinaryOp {
     LessEqual,
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum UnaryOp {
     Bang,
     Minus,

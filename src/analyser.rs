@@ -20,6 +20,7 @@ impl AnalyserCtx<'_> {
             errors: Vec::new(),
         }
     }
+
     pub fn analyse(&mut self, stmts: &[Expr]) -> Result<(), &Vec<SyntaxErr>> {
         for stmt in stmts {
             self.visit(stmt);
@@ -482,8 +483,8 @@ impl AnalyserCtx<'_> {
     }
 
     fn visit_binary(&mut self, op: &Spanned<BinaryOp>, left: &Box<Expr>, right: &Box<Expr>) {
-        self.visit_expr(left);
-        self.visit_expr(right);
+        self.visit(left);
+        self.visit(right);
 
         fn check_math(x: &mut AnalyserCtx, span: &Span, l: &Expr, r: &Expr) {
             if !x.is_returnt_type(l, Type::Number) || !x.is_returnt_type(r, Type::Number) {

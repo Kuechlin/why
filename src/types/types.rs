@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fmt::Display};
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum Type {
     Number,
     String,

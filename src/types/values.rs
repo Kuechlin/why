@@ -2,7 +2,7 @@ use std::{collections::HashMap, fmt::Display};
 
 use super::{exprs::Expr, types::Type};
 
-#[derive(Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Number(f64),
     String(String),
