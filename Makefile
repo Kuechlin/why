@@ -1,8 +1,13 @@
 run:
 	cargo run
 
+dev:
+	cd web && npm run dev
+
 wasm:
 	wasm-pack build --target web
 
-dev:
-	cd web && npm run dev
+website:
+	cd web && npm run build
+
+build: wasm website
