@@ -87,6 +87,27 @@ impl Type {
                 }
                 true
             }
+            (
+                Type::Fn {
+                    args: l_args,
+                    returns: l_returns,
+                },
+                Type::Fn {
+                    args: r_args,
+                    returns: r_returns,
+                },
+            ) => {
+                for (i, l_arg) in l_args.iter().enumerate() {
+                    if let Some(r_arg) = r_args.get(i) {
+                        if r_arg.1.includes(&l_arg.1) {
+                            continue;
+                        }
+                    }
+                    return false;
+                }
+                l_returns.includes(r_returns)
+            }
+            (Type::Def(left), Type::Def(right)) => *left == *right,
             (Type::String, Type::String) => true,
             (Type::Number, Type::Number) => true,
             (Type::Bool, Type::Bool) => true,
