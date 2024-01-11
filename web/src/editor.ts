@@ -21,7 +21,7 @@ export function Editor() {
 
     const editor_dom = div({ class: "editor" });
     // init editor
-    const default_code = `let greet = fn name: string -> string {
+    const default_code = `let greet = fn name: Str -> Str {
         "hello " + name
     };
     greet("world")`;
