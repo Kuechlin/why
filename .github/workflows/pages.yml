@@ -1,9 +1,7 @@
 name: Build and Deploy
-
-on:
-    push:
-        branches:
-            - main
+on: [push]
+permissions:
+    contents: write
 
 jobs:
     build-and-deploy:
@@ -18,7 +16,7 @@ jobs:
             - name: Build
               run: make build
             - name: Deploy
-              uses: JamesIves/github-pages-deploy-action@4.1.7
+              uses: JamesIves/github-pages-deploy-action@v4
               with:
                   branch: gh-pages
                   folder: web/dist
