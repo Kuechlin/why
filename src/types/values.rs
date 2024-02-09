@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::Display};
+use std::{borrow::Cow, collections::HashMap, fmt::Display};
 
 use super::{exprs::Expr, types::Type};
 
@@ -35,17 +35,17 @@ impl Value {
             Value::Void => false,
         }
     }
-    pub fn get_type(&self) -> Type {
+    pub fn get_type(&self) -> Cow<'_, Type> {
         match self {
-            Value::Number(_) => Type::Number,
-            Value::String(_) => Type::String,
-            Value::Bool(_) => Type::Bool,
-            Value::Fn { expr: _, typedef } => typedef.clone(),
+            Value::Number(_) => Cow::Owned(Type::Number),
+            Value::String(_) => Cow::Owned(Type::String),
+            Value::Bool(_) => Cow::Owned(Type::Bool),
+            Value::Fn { expr: _, typedef } => Cow::Borrowed(typedef),
             Value::Obj {
                 typedef,
                 entries: _,
-            } => typedef.clone(),
-            Value::Void => Type::Void,
+            } => Cow::Borrowed(typedef),
+            Value::Void => Cow::Owned(Type::Void),
         }
     }
 }

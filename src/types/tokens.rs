@@ -43,8 +43,6 @@ pub enum Token {
     Def,
     Let,
     New,
-
-    Eof,
 }
 
 impl Display for Token {
@@ -87,7 +85,6 @@ impl Display for Token {
             Token::Def => "def".to_owned(),
             Token::Let => "let".to_owned(),
             Token::New => "new".to_owned(),
-            Token::Eof => "".to_owned(),
         };
         write!(f, "{val}")
     }

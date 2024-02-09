@@ -53,7 +53,7 @@ fn main() {
 "
         .blue()
     );
-    let mut ctx = Ctx::new(None, None);
+    let ctx = Ctx::new(None, None);
     let mut stdout = io::stdout();
     let stdin = io::stdin();
     loop {

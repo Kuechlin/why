@@ -16,3 +16,12 @@ pub struct SyntaxErr {
 pub struct RuntimeErr {
     pub message: String,
 }
+
+impl SyntaxErr {
+    pub fn new<'a>(msg: &'a str, span: &Span) -> Self {
+        Self {
+            message: msg.to_owned(),
+            source: span.clone(),
+        }
+    }
+}

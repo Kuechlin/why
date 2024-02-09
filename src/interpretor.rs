@@ -14,7 +14,7 @@ fn error(msg: &str) -> EvalResult {
 }
 
 impl Ctx<'_> {
-    pub fn execute(&mut self, stmts: &Vec<Expr>) -> EvalResult {
+    pub fn execute(&self, stmts: &Vec<Expr>) -> EvalResult {
         let mut result = Value::Void;
         for stmt in stmts {
             result = self.eval(stmt)?;
@@ -22,7 +22,7 @@ impl Ctx<'_> {
         Ok(result)
     }
 
-    pub fn eval(&mut self, input: &Expr) -> EvalResult {
+    pub fn eval(&self, input: &Expr) -> EvalResult {
         match input {
             Expr::Block { stmts, span: _ } => self.eval_block(stmts),
             Expr::Let {
@@ -79,7 +79,7 @@ impl Ctx<'_> {
         }
     }
 
-    fn eval_block(&mut self, stmts: &Vec<Expr>) -> EvalResult {
+    fn eval_block(&self, stmts: &Vec<Expr>) -> EvalResult {
         let mut _ctx = self.derive();
         let mut result = Value::Void;
         for stmt in stmts {
@@ -88,29 +88,29 @@ impl Ctx<'_> {
         Ok(result)
     }
 
-    fn eval_let(&mut self, name: &str, expr: &Box<Expr>) -> EvalResult {
+    fn eval_let(&self, name: &str, expr: &Box<Expr>) -> EvalResult {
         let value = self.eval(expr)?;
         self.set_value(name, value);
         Ok(Value::Void)
     }
 
-    fn eval_def(&mut self, name: &str, typedef: &Type) -> EvalResult {
+    fn eval_def(&self, name: &str, typedef: &Type) -> EvalResult {
         self.set_type(name, typedef.clone());
         Ok(Value::Void)
     }
 
-    fn eval_var(&mut self, name: &str, then: &Option<Box<Expr>>) -> EvalResult {
+    fn eval_var(&self, name: &str, then: &Option<Box<Expr>>) -> EvalResult {
         let value = self.get_value(name);
 
         match then {
             Some(then) => {
-                let mut ctx = Ctx::new(
+                let ctx = Ctx::new(
                     None,
                     match value {
                         Value::Obj {
                             typedef: _,
                             entries,
-                        } => Some(entries),
+                        } => Some(entries.clone()),
                         _ => None,
                     },
                 );
@@ -121,7 +121,7 @@ impl Ctx<'_> {
     }
 
     fn eval_new(
-        &mut self,
+        &self,
         entries: &HashMap<Spanned<String>, Expr>,
         typedef: &Option<Spanned<String>>,
     ) -> EvalResult {
@@ -142,12 +142,7 @@ impl Ctx<'_> {
         })
     }
 
-    fn eval_if(
-        &mut self,
-        cond: &Box<Expr>,
-        then: &Box<Expr>,
-        or: &Option<Box<Expr>>,
-    ) -> EvalResult {
+    fn eval_if(&self, cond: &Box<Expr>, then: &Box<Expr>, or: &Option<Box<Expr>>) -> EvalResult {
         let check = self.eval(cond)?.is_truthy();
         if check {
             self.eval(then)
@@ -159,7 +154,7 @@ impl Ctx<'_> {
         }
     }
 
-    fn eval_is(&mut self, expr: &Box<Expr>, cases: &Vec<Expr>, default: &Box<Expr>) -> EvalResult {
+    fn eval_is(&self, expr: &Box<Expr>, cases: &Vec<Expr>, default: &Box<Expr>) -> EvalResult {
         let value = self.eval(expr)?;
 
         for c in cases {
@@ -206,24 +201,24 @@ impl Ctx<'_> {
                 }
                 _ => continue,
             };
-            let mut ctx = self.derive();
+            let ctx = self.derive();
             let _ = ctx.set_value("it", value);
             return ctx.eval(then);
         }
 
-        let mut ctx = self.derive();
+        let ctx = self.derive();
         ctx.set_value("it", value);
         return ctx.eval(default);
     }
 
-    fn eval_fn(&mut self, expr: &Box<Expr>, typedef: &Type) -> EvalResult {
+    fn eval_fn(&self, expr: &Box<Expr>, typedef: &Type) -> EvalResult {
         Ok(Value::Fn {
             typedef: typedef.clone(),
             expr: expr.clone(),
         })
     }
 
-    fn eval_call(&mut self, name: &String, args: &Vec<Expr>) -> EvalResult {
+    fn eval_call(&self, name: &String, args: &Vec<Expr>) -> EvalResult {
         let (typedef, fn_expr) = match self.get_value(name) {
             Value::Fn { typedef, expr } => (typedef, expr),
             _ => return error(format!("{name} is not a function").as_str()),
@@ -251,7 +246,7 @@ impl Ctx<'_> {
             };
             let _ = args_state.insert(name.to_owned(), arg);
         }
-        let mut ctx = match self.get_let_ctx(name) {
+        let ctx = match self.get_let_ctx(name) {
             Some(ctx) => ctx.derive_with_state(args_state),
             None => return error(format!("no context found for {name}").as_str()),
         };
@@ -260,7 +255,7 @@ impl Ctx<'_> {
     }
 
     // expressions
-    fn eval_unary(&mut self, op: &UnaryOp, expr: &Box<Expr>) -> EvalResult {
+    fn eval_unary(&self, op: &UnaryOp, expr: &Box<Expr>) -> EvalResult {
         let value = self.eval(expr)?;
 
         match op {
@@ -272,7 +267,7 @@ impl Ctx<'_> {
         }
     }
 
-    fn eval_binary(&mut self, op: &BinaryOp, left: &Box<Expr>, right: &Box<Expr>) -> EvalResult {
+    fn eval_binary(&self, op: &BinaryOp, left: &Box<Expr>, right: &Box<Expr>) -> EvalResult {
         let left_value = self.eval(left)?;
         let right_value = self.eval(right)?;
 
@@ -284,6 +279,12 @@ impl Ctx<'_> {
             BinaryOp::Minus => math(op, &left_value, &right_value),
             BinaryOp::Mul => math(op, &left_value, &right_value),
             BinaryOp::Div => math(op, &left_value, &right_value),
+            BinaryOp::And => Ok(Value::Bool(
+                left_value.is_truthy() && right_value.is_truthy(),
+            )),
+            BinaryOp::Or => Ok(Value::Bool(
+                left_value.is_truthy() || right_value.is_truthy(),
+            )),
             BinaryOp::NotEqual => Ok(Value::Bool(left_value != right_value)),
             BinaryOp::Equal => Ok(Value::Bool(left_value == right_value)),
             BinaryOp::Greater => Ok(Value::Bool(left_value > right_value)),

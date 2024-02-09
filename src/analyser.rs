@@ -9,15 +9,8 @@ use crate::types::{
 
 type Errors = Vec<SyntaxErr>;
 
-fn err(msg: &str, source: &Span) -> SyntaxErr {
-    SyntaxErr {
-        message: msg.to_owned(),
-        source: source.clone(),
-    }
-}
-
 impl Ctx<'_> {
-    pub fn analyse(&mut self, stmts: &[Expr]) -> Result<(), Errors> {
+    pub fn analyse(&self, stmts: &[Expr]) -> Result<(), Errors> {
         let mut errors = Vec::new();
         for stmt in stmts {
             errors.append(&mut self.visit(stmt));
@@ -34,7 +27,7 @@ impl Ctx<'_> {
         fn resolve<'a>(ctx: &'a Ctx<'_>, t: &Type, s: &Span) -> Result<Cow<'a, Type>, SyntaxErr> {
             match ctx.resolve_type(&t) {
                 Ok(val) => Ok(val),
-                Err(msg) => Err(err(&msg, s)),
+                Err(msg) => Err(SyntaxErr::new(&msg, s)),
             }
         }
 
@@ -46,9 +39,14 @@ impl Ctx<'_> {
             } => {
                 let typedef = match self.get_type(&name.0) {
                     Some(x) => x,
-                    None => return Err(err(&format!("var {} is not defined", name.0), &name.1)),
+                    None => {
+                        return Err(SyntaxErr::new(
+                            &format!("var {} is not defined", name.0),
+                            &name.1,
+                        ))
+                    }
                 };
-                if let Type::Obj(entries) = typedef.as_ref() {
+                if let Type::Obj(entries) = &typedef {
                     if let Some(expr) = then {
                         // get object property
                         let ctx = Ctx::new(Some(entries.clone()), None);
@@ -56,7 +54,10 @@ impl Ctx<'_> {
                         return Ok(Cow::Owned(return_type));
                     }
                 } else if let Some(_) = then {
-                    return Err(err("only object properties are supported", &name.1));
+                    return Err(SyntaxErr::new(
+                        "only object properties are supported",
+                        &name.1,
+                    ));
                 }
                 resolve(self, &typedef, &name.1)
             }
@@ -65,14 +66,14 @@ impl Ctx<'_> {
                 args: _,
                 span: _,
             } => match self.get_type(&name.0) {
-                Some(typedef) => match typedef.as_ref() {
+                Some(typedef) => match typedef {
                     Type::Fn { args: _, returns } => resolve(self, returns.as_ref(), &name.1),
-                    _ => Err(err(
+                    _ => Err(SyntaxErr::new(
                         "invalid call expression, variable is not a function",
                         &name.1,
                     )),
                 },
-                _ => Err(err("function is not defined", &name.1)),
+                _ => Err(SyntaxErr::new("function is not defined", &name.1)),
             },
             Expr::Literal(val) => resolve(self, &val.0.get_type(), &val.1),
             Expr::Unary {
@@ -145,7 +146,7 @@ impl Ctx<'_> {
                         } => typedef.0.clone(),
                         _ => expr_type.clone(),
                     };
-                    let mut ctx = self.derive();
+                    let ctx = self.derive();
                     let _ = ctx.try_set_type("it", typedef);
                     let then_return = ctx.get_return_type(case)?;
                     return_type = return_type.combine(then_return.as_ref());
@@ -182,7 +183,7 @@ impl Ctx<'_> {
     }
 
     // statements
-    fn visit(&mut self, expr: &Expr) -> Errors {
+    fn visit(&self, expr: &Expr) -> Errors {
         match expr {
             Expr::Block {
                 stmts: exprs,
@@ -224,16 +225,16 @@ impl Ctx<'_> {
         }
     }
 
-    fn visit_block(&mut self, exprs: &Vec<Expr>) -> Errors {
+    fn visit_block(&self, exprs: &Vec<Expr>) -> Errors {
         let mut errors = vec![];
-        let mut ctx = self.derive();
+        let ctx = self.derive();
         for expr in exprs {
             errors.append(&mut ctx.visit(expr));
         }
         errors
     }
 
-    fn visit_let(&mut self, name: &Spanned<String>, expr: &Box<Expr>) -> Errors {
+    fn visit_let(&self, name: &Spanned<String>, expr: &Box<Expr>) -> Errors {
         let mut errors = self.visit(expr);
         let typedef = match self.get_return_type(&expr) {
             Ok(r) => r.into_owned(),
@@ -244,13 +245,13 @@ impl Ctx<'_> {
         };
 
         if let Err(msg) = self.try_set_type(&name.0, typedef) {
-            errors.push(err(msg, &name.1));
+            errors.push(SyntaxErr::new(msg, &name.1));
         }
         errors
     }
 
     fn visit_new(
-        &mut self,
+        &self,
         entries: &HashMap<Spanned<String>, Expr>,
         typedef: &Option<Spanned<String>>,
     ) -> Errors {
@@ -262,7 +263,7 @@ impl Ctx<'_> {
             let def_type = match self.resolve_type(&Type::Def(t.0.clone())) {
                 Ok(t) => t.into_owned(),
                 Err(msg) => {
-                    errors.push(err(&msg, &t.1));
+                    errors.push(SyntaxErr::new(&msg, &t.1));
                     return errors;
                 }
             };
@@ -273,7 +274,7 @@ impl Ctx<'_> {
             }) {
                 Ok(expr_type) => {
                     if !def_type.includes(&expr_type) {
-                        errors.push(err(
+                        errors.push(SyntaxErr::new(
                             &format!(
                                 "initializer is not assignable to {}\nexpected: {}\nfound: {}",
                                 t.0, def_type, expr_type
@@ -288,15 +289,15 @@ impl Ctx<'_> {
         errors
     }
 
-    fn visit_def(&mut self, name: &Spanned<String>, typedef: &Spanned<Type>) -> Errors {
+    fn visit_def(&self, name: &Spanned<String>, typedef: &Spanned<Type>) -> Errors {
         let mut errors = vec![];
         if let Err(msg) = self.try_set_type(&name.0, typedef.0.clone()) {
-            errors.push(err(msg, &name.1));
+            errors.push(SyntaxErr::new(msg, &name.1));
         }
         errors
     }
 
-    fn visit_if(&mut self, cond: &Box<Expr>, then: &Box<Expr>, or: &Option<Box<Expr>>) -> Errors {
+    fn visit_if(&self, cond: &Box<Expr>, then: &Box<Expr>, or: &Option<Box<Expr>>) -> Errors {
         let mut errors = self.visit_expr(cond);
         errors.append(&mut self.visit(then));
 
@@ -306,7 +307,7 @@ impl Ctx<'_> {
         errors
     }
 
-    fn visit_is(&mut self, expr: &Box<Expr>, cases: &Vec<Expr>, default: &Box<Expr>) -> Errors {
+    fn visit_is(&self, expr: &Box<Expr>, cases: &Vec<Expr>, default: &Box<Expr>) -> Errors {
         let mut errors = self.visit(expr);
         let expr_type = match self.get_return_type(expr) {
             Ok(t) => t.into_owned(),
@@ -334,7 +335,7 @@ impl Ctx<'_> {
                     span: _,
                 } => {
                     if !expr_type.includes(&typedef.0) {
-                        errors.push(err(
+                        errors.push(SyntaxErr::new(
                             &format!(
                                 "expression is allways false, type {} is not included in {}",
                                 expr_type, typedef.0,
@@ -345,30 +346,30 @@ impl Ctx<'_> {
                     (then, typedef.0.clone())
                 }
                 _ => {
-                    errors.push(err("invalid match case", case.get_span()));
+                    errors.push(SyntaxErr::new("invalid match case", case.get_span()));
                     continue;
                 }
             };
             // create match ctx
-            let mut ctx = self.derive();
+            let ctx = self.derive();
             let _ = ctx.try_set_type("it", typedef);
             errors.append(&mut ctx.visit(then));
         }
 
         // validate default
-        let mut ctx = self.derive();
+        let ctx = self.derive();
         let _ = ctx.try_set_type("it", expr_type);
         errors.append(&mut ctx.visit(default));
         errors
     }
 
-    fn visit_fn(&mut self, typedef: &Spanned<Type>, block: &Box<Expr>) -> Errors {
+    fn visit_fn(&self, typedef: &Spanned<Type>, block: &Box<Expr>) -> Errors {
         let mut errors = vec![];
         let (args, return_type) = match self.resolve_type(&typedef.0) {
             Ok(t) => match t.into_owned() {
                 Type::Fn { args, returns } => (args, returns),
                 t => {
-                    errors.push(err(
+                    errors.push(SyntaxErr::new(
                         &format!("expected function type, found {}", t),
                         &typedef.1,
                     ));
@@ -376,16 +377,16 @@ impl Ctx<'_> {
                 }
             },
             Err(msg) => {
-                errors.push(err(&msg, &typedef.1));
+                errors.push(SyntaxErr::new(&msg, &typedef.1));
                 return errors;
             }
         };
 
         // create function scope
-        let mut ctx = self.derive();
+        let ctx = self.derive();
         for arg in args {
             if ctx.try_set_type(&arg.0, arg.1.clone()).is_err() {
-                errors.push(err("argument already exists", &typedef.1))
+                errors.push(SyntaxErr::new("argument already exists", &typedef.1))
             }
         }
         // validate expression
@@ -393,7 +394,7 @@ impl Ctx<'_> {
         match ctx.get_return_type(&block) {
             Ok(expr_return) => {
                 if !return_type.includes(&expr_return) {
-                    errors.push(err(
+                    errors.push(SyntaxErr::new(
                         format!(
                             "function block has invalid return type:\nexpected: {}\nfound {}",
                             return_type.as_ref(),
@@ -410,7 +411,7 @@ impl Ctx<'_> {
     }
 
     // expression
-    fn visit_expr(&mut self, expr: &Expr) -> Errors {
+    fn visit_expr(&self, expr: &Expr) -> Errors {
         match expr {
             Expr::Literal(_) => vec![],
             Expr::Var {
@@ -430,11 +431,11 @@ impl Ctx<'_> {
                 right,
                 span: _,
             } => self.visit_binary(op, left, right),
-            _ => vec![err("invalid expression", expr.get_span())],
+            _ => vec![SyntaxErr::new("invalid expression", expr.get_span())],
         }
     }
 
-    fn visit_unary(&mut self, op: &Spanned<UnaryOp>, expr: &Box<Expr>) -> Errors {
+    fn visit_unary(&self, op: &Spanned<UnaryOp>, expr: &Box<Expr>) -> Errors {
         let mut errors = self.visit_expr(expr);
         let return_type = match self.get_return_type(expr) {
             Ok(t) => t,
@@ -444,17 +445,15 @@ impl Ctx<'_> {
             }
         };
         if op.0 == UnaryOp::Minus && *return_type != Type::Number {
-            errors.push(err("minus can only be applyed to numbers", &op.1));
+            errors.push(SyntaxErr::new(
+                "minus can only be applyed to numbers",
+                &op.1,
+            ));
         }
         errors
     }
 
-    fn visit_binary(
-        &mut self,
-        op: &Spanned<BinaryOp>,
-        left: &Box<Expr>,
-        right: &Box<Expr>,
-    ) -> Errors {
+    fn visit_binary(&self, op: &Spanned<BinaryOp>, left: &Box<Expr>, right: &Box<Expr>) -> Errors {
         let mut errors = self.visit(left);
         errors.append(&mut self.visit(right));
 
@@ -478,12 +477,18 @@ impl Ctx<'_> {
                 if *left_return != Type::String
                     && (*left_return != Type::Number || *right_return != Type::Number)
                 {
-                    errors.push(err("operator can only be used for numbers", &op.1))
+                    errors.push(SyntaxErr::new(
+                        "operator can only be used for numbers",
+                        &op.1,
+                    ))
                 }
             }
             BinaryOp::Minus | BinaryOp::Mul | BinaryOp::Div => {
                 if *left_return != Type::Number || *right_return != Type::Number {
-                    errors.push(err("operator can only be used for numbers", &op.1))
+                    errors.push(SyntaxErr::new(
+                        "operator can only be used for numbers",
+                        &op.1,
+                    ))
                 }
             }
             BinaryOp::NotEqual
@@ -493,21 +498,24 @@ impl Ctx<'_> {
             | BinaryOp::Less
             | BinaryOp::LessEqual => {
                 if *left_return != *right_return {
-                    errors.push(err("can only compare same types", &op.1))
+                    errors.push(SyntaxErr::new("can only compare same types", &op.1))
                 }
+            }
+            BinaryOp::And | BinaryOp::Or => {
+                // variables get checked by truthyness
             }
         }
         errors
     }
 
-    fn visit_variable(&mut self, name: &Spanned<String>, then: &Option<Box<Expr>>) -> Errors {
+    fn visit_variable(&self, name: &Spanned<String>, then: &Option<Box<Expr>>) -> Errors {
         let var = match self.get_type(&name.0) {
             Some(x) => x,
-            None => return vec![err("variable not defined", &name.1)],
+            None => return vec![SyntaxErr::new("variable not defined", &name.1)],
         };
         if let Some(expr) = then {
-            let mut ctx = Ctx::new(
-                match var.as_ref() {
+            let ctx = Ctx::new(
+                match var {
                     Type::Obj(entries) => Some(entries.clone()),
                     _ => None,
                 },
@@ -519,25 +527,25 @@ impl Ctx<'_> {
         }
     }
 
-    fn visit_call(&mut self, name: &Spanned<String>, args: &Vec<Expr>) -> Errors {
+    fn visit_call(&self, name: &Spanned<String>, args: &Vec<Expr>) -> Errors {
         let arg_types = match self.get_type(&name.0) {
-            Some(t) => match t.as_ref() {
+            Some(t) => match t {
                 Type::Fn { args, returns: _ } => args.clone(),
                 _ => {
-                    return vec![err(
+                    return vec![SyntaxErr::new(
                         format!("{} is not a function", &name.0).as_str(),
                         &name.1,
                     )]
                 }
             },
-            None => return vec![err("function not defined", &name.1)],
+            None => return vec![SyntaxErr::new("function not defined", &name.1)],
         };
         let mut errors = vec![];
         for (i, (arg_name, arg_type)) in arg_types.iter().enumerate() {
             let arg = match args.get(i) {
                 Some(expr) => expr,
                 None => {
-                    errors.push(err(
+                    errors.push(SyntaxErr::new(
                         format!("missing fn arg {}", &arg_name).as_str(),
                         &name.1,
                     ));
@@ -567,7 +575,7 @@ impl Ctx<'_> {
             match arg_return {
                 Ok(arg_return) => {
                     if !arg_type.includes(&arg_return) {
-                        errors.push(err(
+                        errors.push(SyntaxErr::new(
                             format!("invalid arg type\nexpected: {arg_type}\nfound: {arg_return}",)
                                 .as_str(),
                             arg.get_span(),

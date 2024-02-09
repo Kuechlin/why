@@ -1,11 +1,11 @@
-use std::{borrow::Cow, collections::HashMap};
+use std::{borrow::Cow, collections::HashMap, sync::Mutex};
 
 use super::{types::Type, values::Value};
 
 pub struct Ctx<'a> {
     pub enclosing: Option<&'a Self>,
-    pub types: HashMap<String, Type>,
-    pub state: HashMap<String, Value>,
+    pub types: Mutex<HashMap<String, Type>>,
+    pub state: Mutex<HashMap<String, Value>>,
 }
 
 impl Ctx<'_> {
@@ -15,39 +15,38 @@ impl Ctx<'_> {
     ) -> Ctx<'a> {
         Ctx {
             enclosing: None,
-            types: types.unwrap_or(HashMap::new()),
-            state: state.unwrap_or(HashMap::new()),
+            types: Mutex::new(types.unwrap_or(HashMap::new())),
+            state: Mutex::new(state.unwrap_or(HashMap::new())),
         }
     }
-    pub fn derive(&self) -> Ctx {
+    pub fn derive<'a>(&'a self) -> Ctx<'a> {
         Ctx {
             enclosing: Some(self),
-            types: HashMap::new(),
-            state: HashMap::new(),
+            types: Mutex::new(HashMap::new()),
+            state: Mutex::new(HashMap::new()),
         }
     }
-
-    pub fn derive_with_state(&self, state: HashMap<String, Value>) -> Ctx {
+    pub fn derive_with_state<'a>(&'a self, state: HashMap<String, Value>) -> Ctx<'a> {
         Ctx {
             enclosing: Some(self),
-            types: HashMap::new(),
-            state,
+            types: Mutex::new(HashMap::new()),
+            state: Mutex::new(state),
         }
     }
 
     // getters
     pub fn get_value(&self, key: &str) -> Value {
-        match self.state.get(key) {
-            Some(val) => val.to_owned(),
+        match self.state.lock().unwrap().get(key) {
+            Some(val) => val.clone(),
             None => match self.enclosing {
                 Some(parent) => parent.get_value(key),
                 None => Value::Void,
             },
         }
     }
-    pub fn get_type(&self, key: &str) -> Option<Cow<'_, Type>> {
-        match self.types.get(key) {
-            Some(val) => Some(Cow::Borrowed(val)),
+    pub fn get_type(&self, key: &str) -> Option<Type> {
+        match self.types.lock().unwrap().get(key) {
+            Some(val) => Some(val.to_owned()),
             None => match self.enclosing {
                 Some(parent) => parent.get_type(key),
                 None => None,
@@ -55,7 +54,7 @@ impl Ctx<'_> {
         }
     }
     pub fn get_let_ctx(&self, key: &str) -> Option<&Self> {
-        if self.state.contains_key(key) {
+        if self.state.lock().unwrap().contains_key(key) {
             Some(self)
         } else if self.enclosing.is_some() {
             self.enclosing.unwrap().get_let_ctx(key)
@@ -65,19 +64,20 @@ impl Ctx<'_> {
     }
 
     // setters
-    pub fn set_value(&mut self, key: &str, val: Value) {
-        let _ = self.state.insert(key.to_string(), val);
+    pub fn set_value(&self, key: &str, val: Value) {
+        let _ = self.state.lock().unwrap().insert(key.to_string(), val);
     }
-    pub fn try_set_type(&mut self, key: &str, val: Type) -> Result<(), &'static str> {
-        if self.types.contains_key(key) {
+    pub fn try_set_type(&self, key: &str, val: Type) -> Result<(), &'static str> {
+        let mut types = self.types.lock().unwrap();
+        if types.contains_key(key) {
             Err("can't reassign a value to immutable variable")
         } else {
-            let _ = self.types.insert(key.to_string(), val);
+            let _ = types.insert(key.to_string(), val);
             Ok(())
         }
     }
-    pub fn set_type(&mut self, key: &str, val: Type) {
-        let _ = self.types.insert(key.to_string(), val);
+    pub fn set_type(&self, key: &str, val: Type) {
+        let _ = self.types.lock().unwrap().insert(key.to_string(), val);
     }
 
     // typecheks

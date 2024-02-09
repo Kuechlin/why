@@ -91,7 +91,7 @@ fn eval(value: &str) -> Result<Value, Vec<SyntaxErr>> {
         Err(err) => return Err(vec![err]),
     };
 
-    let mut ctx = Ctx::new(None, None);
+    let ctx = Ctx::new(None, None);
 
     match ctx.analyse(&stmts) {
         Ok(stmts) => stmts,
