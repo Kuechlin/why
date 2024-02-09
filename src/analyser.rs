@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::HashMap};
+use std::{collections::HashMap, rc::Rc};
 
 use crate::types::{
     context::Ctx,
@@ -23,8 +23,8 @@ impl Ctx<'_> {
         }
     }
 
-    fn get_return_type(&self, expr: &Expr) -> Result<Cow<'_, Type>, SyntaxErr> {
-        fn resolve<'a>(ctx: &'a Ctx<'_>, t: &Type, s: &Span) -> Result<Cow<'a, Type>, SyntaxErr> {
+    fn get_return_type(&self, expr: &Expr) -> Result<Rc<Type>, SyntaxErr> {
+        fn resolve<'a>(ctx: &'a Ctx<'_>, t: &Type, s: &Span) -> Result<Rc<Type>, SyntaxErr> {
             match ctx.resolve_type(&t) {
                 Ok(val) => Ok(val),
                 Err(msg) => Err(SyntaxErr::new(&msg, s)),
@@ -46,12 +46,12 @@ impl Ctx<'_> {
                         ))
                     }
                 };
-                if let Type::Obj(entries) = &typedef {
+                if let Type::Obj(entries) = typedef.as_ref() {
                     if let Some(expr) = then {
                         // get object property
                         let ctx = Ctx::new(Some(entries.clone()), None);
-                        let return_type = ctx.get_return_type(expr)?.into_owned();
-                        return Ok(Cow::Owned(return_type));
+                        let return_type = ctx.get_return_type(expr)?;
+                        return Ok(return_type);
                     }
                 } else if let Some(_) = then {
                     return Err(SyntaxErr::new(
@@ -59,14 +59,15 @@ impl Ctx<'_> {
                         &name.1,
                     ));
                 }
-                resolve(self, &typedef, &name.1)
+                self.resolve_rctype(typedef)
+                    .map_err(|e| SyntaxErr::new(&e, &name.1))
             }
             Expr::Call {
                 name,
                 args: _,
                 span: _,
             } => match self.get_type(&name.0) {
-                Some(typedef) => match typedef {
+                Some(typedef) => match typedef.as_ref() {
                     Type::Fn { args: _, returns } => resolve(self, returns.as_ref(), &name.1),
                     _ => Err(SyntaxErr::new(
                         "invalid call expression, variable is not a function",
@@ -80,7 +81,7 @@ impl Ctx<'_> {
                 op,
                 expr: _,
                 span: _,
-            } => Ok(Cow::Owned(match op.0 {
+            } => Ok(Rc::new(match op.0 {
                 UnaryOp::Bang => Type::Bool,
                 UnaryOp::Minus => Type::Number,
             })),
@@ -89,7 +90,7 @@ impl Ctx<'_> {
                 left,
                 right: _,
                 span: _,
-            } => Ok(Cow::Owned(match op.0 {
+            } => Ok(Rc::new(match op.0 {
                 BinaryOp::Plus => match *self.get_return_type(left)? == Type::String {
                     true => Type::String,
                     false => Type::Number,
@@ -99,7 +100,7 @@ impl Ctx<'_> {
             })),
             Expr::Block { stmts, span: _ } => match stmts.last() {
                 Some(expr) => self.get_return_type(expr),
-                None => Ok(Cow::Owned(Type::Void)),
+                None => Ok(Rc::new(Type::Void)),
             },
             Expr::If {
                 cond: _,
@@ -109,9 +110,9 @@ impl Ctx<'_> {
             } => match or {
                 None => self.get_return_type(then),
                 Some(or) => {
-                    let then_type = self.get_return_type(then)?.into_owned();
-                    let or_type = self.get_return_type(or)?.into_owned();
-                    Ok(Cow::Owned(then_type.combine(&or_type)))
+                    let then_type = self.get_return_type(then)?;
+                    let or_type = self.get_return_type(or)?;
+                    Ok(Rc::new(then_type.combine(&or_type)))
                 }
             },
             Expr::Fn {
@@ -123,20 +124,20 @@ impl Ctx<'_> {
                 name: _,
                 expr: _,
                 span: _,
-            } => Ok(Cow::Owned(Type::Void)),
+            } => Ok(Rc::new(Type::Void)),
             Expr::Def {
                 name: _,
                 typedef: _,
                 span: _,
-            } => Ok(Cow::Owned(Type::Void)),
+            } => Ok(Rc::new(Type::Void)),
             Expr::Is {
                 expr,
                 cases,
                 default,
                 span: _,
             } => {
-                let expr_type = self.get_return_type(expr)?.into_owned();
-                let mut return_type = self.get_return_type(default)?.into_owned();
+                let expr_type = self.get_return_type(expr)?;
+                let mut return_type = self.get_return_type(default)?.as_ref().clone();
                 for case in cases {
                     let typedef = match case {
                         Expr::MatchType {
@@ -144,14 +145,14 @@ impl Ctx<'_> {
                             then: _,
                             span: _,
                         } => typedef.0.clone(),
-                        _ => expr_type.clone(),
+                        _ => expr_type.as_ref().clone(),
                     };
                     let ctx = self.derive();
                     let _ = ctx.try_set_type("it", typedef);
                     let then_return = ctx.get_return_type(case)?;
                     return_type = return_type.combine(then_return.as_ref());
                 }
-                Ok(Cow::Owned(return_type))
+                Ok(Rc::new(return_type))
             }
             Expr::Match {
                 op: _,
@@ -174,9 +175,9 @@ impl Ctx<'_> {
                     let mut types = HashMap::new();
                     for (key, expr) in entries {
                         let return_type = self.get_return_type(expr)?;
-                        types.insert(key.0.clone(), return_type.into_owned());
+                        types.insert(key.0.clone(), return_type.as_ref().clone());
                     }
-                    Ok(Cow::Owned(Type::Obj(types)))
+                    Ok(Rc::new(Type::Obj(types)))
                 }
             },
         }
@@ -237,7 +238,7 @@ impl Ctx<'_> {
     fn visit_let(&self, name: &Spanned<String>, expr: &Box<Expr>) -> Errors {
         let mut errors = self.visit(expr);
         let typedef = match self.get_return_type(&expr) {
-            Ok(r) => r.into_owned(),
+            Ok(r) => r.as_ref().clone(),
             Err(err) => {
                 errors.push(err);
                 return errors;
@@ -261,7 +262,7 @@ impl Ctx<'_> {
         }
         if let Some(t) = typedef {
             let def_type = match self.resolve_type(&Type::Def(t.0.clone())) {
-                Ok(t) => t.into_owned(),
+                Ok(t) => t.as_ref().clone(),
                 Err(msg) => {
                     errors.push(SyntaxErr::new(&msg, &t.1));
                     return errors;
@@ -310,7 +311,7 @@ impl Ctx<'_> {
     fn visit_is(&self, expr: &Box<Expr>, cases: &Vec<Expr>, default: &Box<Expr>) -> Errors {
         let mut errors = self.visit(expr);
         let expr_type = match self.get_return_type(expr) {
-            Ok(t) => t.into_owned(),
+            Ok(t) => t.as_ref().clone(),
             Err(err) => {
                 errors.push(err);
                 return errors;
@@ -366,7 +367,7 @@ impl Ctx<'_> {
     fn visit_fn(&self, typedef: &Spanned<Type>, block: &Box<Expr>) -> Errors {
         let mut errors = vec![];
         let (args, return_type) = match self.resolve_type(&typedef.0) {
-            Ok(t) => match t.into_owned() {
+            Ok(t) => match t.as_ref().clone() {
                 Type::Fn { args, returns } => (args, returns),
                 t => {
                     errors.push(SyntaxErr::new(
@@ -515,7 +516,7 @@ impl Ctx<'_> {
         };
         if let Some(expr) = then {
             let ctx = Ctx::new(
-                match var {
+                match var.as_ref() {
                     Type::Obj(entries) => Some(entries.clone()),
                     _ => None,
                 },
@@ -529,7 +530,7 @@ impl Ctx<'_> {
 
     fn visit_call(&self, name: &Spanned<String>, args: &Vec<Expr>) -> Errors {
         let arg_types = match self.get_type(&name.0) {
-            Some(t) => match t {
+            Some(t) => match t.as_ref() {
                 Type::Fn { args, returns: _ } => args.clone(),
                 _ => {
                     return vec![SyntaxErr::new(

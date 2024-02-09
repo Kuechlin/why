@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, rc::Rc};
 
 use crate::types::{
     context::Ctx, exprs::BinaryOp, exprs::Expr, exprs::UnaryOp, types::Type, values::Value,
@@ -106,7 +106,7 @@ impl Ctx<'_> {
             Some(then) => {
                 let ctx = Ctx::new(
                     None,
-                    match value {
+                    match value.as_ref() {
                         Value::Obj {
                             typedef: _,
                             entries,
@@ -116,7 +116,7 @@ impl Ctx<'_> {
                 );
                 ctx.eval(then)
             }
-            None => Ok(value),
+            None => Ok(value.as_ref().clone()),
         }
     }
 
@@ -219,7 +219,8 @@ impl Ctx<'_> {
     }
 
     fn eval_call(&self, name: &String, args: &Vec<Expr>) -> EvalResult {
-        let (typedef, fn_expr) = match self.get_value(name) {
+        let val = self.get_value(name);
+        let (typedef, fn_expr) = match val.as_ref() {
             Value::Fn { typedef, expr } => (typedef, expr),
             _ => return error(format!("{name} is not a function").as_str()),
         };
@@ -244,7 +245,7 @@ impl Ctx<'_> {
                 Some(e) => self.eval(e)?,
                 None => return error(format!("arg {name} is mission").as_str()),
             };
-            let _ = args_state.insert(name.to_owned(), arg);
+            let _ = args_state.insert(name.to_owned(), Rc::new(arg));
         }
         let ctx = match self.get_let_ctx(name) {
             Some(ctx) => ctx.derive_with_state(args_state),

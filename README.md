@@ -8,10 +8,10 @@
 
 **types:**
 
--   string
--   number
--   boolean
--   function
+- string
+- number
+- boolean
+- function
 
 ```
 a = 0;
@@ -24,7 +24,7 @@ test = fn x: num, y: str, z: bool -> str {
 
 ### statments
 
--   if
+- if
 
 ```
 a = 20;
@@ -38,7 +38,7 @@ if a == 0 {
 }
 ```
 
--   is
+- is
 
 ```
 a = 20;
@@ -57,8 +57,8 @@ def Result = str | num;
 
 ### functions
 
--   **fn arg: type -> return type**
--   **fn arg: (fn arg: type -> return type) -> return type**
+- **fn arg: type -> return type**
+- **fn arg: (fn arg: type -> return type) -> return type**
 
 ```
 test = fn x: num, y: str, z: bool -> str {
