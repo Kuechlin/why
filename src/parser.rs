@@ -82,7 +82,9 @@ impl ParserCtx<'_> {
 
     // statement
     fn statement(&self) -> ParserResult {
-        self.stmt_def()
+        let stmt = self.stmt_def()?;
+        let _ = self.is(&[Token::Semicolon]);
+        Ok(stmt)
     }
 
     fn stmt_def(&self) -> ParserResult {
@@ -99,9 +101,6 @@ impl ParserCtx<'_> {
             return error("Expect ':' after definition identifier", &self.current()?.1);
         }
         let typedef = self.typedef()?;
-        if !self.is(&[Token::Semicolon]) {
-            return error("Expect ';' after statement", &self.current()?.1);
-        }
         Ok(Expr::Def {
             name: (name.to_owned(), token.1.to_owned()),
             typedef,
@@ -119,10 +118,6 @@ impl ParserCtx<'_> {
             return error("initializer expected", &name.1);
         }
         let expr = Box::new(self.statement()?);
-        // check end
-        if !self.is(&[Token::Semicolon]) {
-            return error("Expect ';' after statement", &self.current()?.1);
-        }
         Ok(Expr::Let {
             name,
             expr,
