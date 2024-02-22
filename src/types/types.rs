@@ -159,7 +159,7 @@ impl Type {
 
 impl PartialEq for Type {
     fn eq(&self, other: &Self) -> bool {
-        let res = match (self, other) {
+        match (self, other) {
             (Self::Fn(l), Self::Fn(r)) => {
                 for (i, l) in l.args.iter().enumerate() {
                     let r = match r.args.get(i) {
@@ -202,9 +202,7 @@ impl PartialEq for Type {
             (Self::Bool(_), Self::Bool(_)) => true,
             (Self::Void, Self::Void) => true,
             _ => false,
-        };
-        println!("{:?} == {:?} = {}", self, other, res);
-        res
+        }
     }
 }
 

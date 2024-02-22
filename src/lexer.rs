@@ -37,6 +37,13 @@ impl LexerCtx {
     fn get_string(&self, start: usize, end: usize) -> String {
         self.source[start..end].iter().collect()
     }
+
+    // parser functions
+    fn comment(&mut self) {
+        while self.peek() != '\n' && !self.is_end() {
+            self.current += 1;
+        }
+    }
     fn operator(&mut self, op: Token, op_with_eq: Token) {
         if self.peek() != '=' {
             self.add(op)
@@ -129,7 +136,10 @@ impl LexerCtx {
             },
             '+' => self.add(Token::Plus),
             '*' => self.add(Token::Star),
-            '/' => self.add(Token::Slash),
+            '/' => match self.peek() == '/' {
+                true => self.comment(),
+                false => self.add(Token::Slash),
+            },
             ':' => self.add(Token::DotDot),
             ';' => self.add(Token::Semicolon),
             // operators
