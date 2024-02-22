@@ -1,15 +1,13 @@
 [package]
-name = "ylang"
+name = "spanned"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lib]
-crate-type = ["cdylib"]
+proc-macro = true
 
 [dependencies]
-wasm-bindgen = "0.2"
-colored = "2.1.0"
-map-macro = "0.3.0"
-spanned = { path = "./spanned" }
+syn = "2.0.50"
+quote = "1.0"

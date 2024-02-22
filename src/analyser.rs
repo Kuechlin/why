@@ -1,398 +1,199 @@
-use std::{collections::HashMap, rc::Rc};
-
 use crate::types::{
+    ast::{
+        BinaryEx, BinaryOp, BlockEx, CallEx, DefEx, Expr, FnEx, IfEx, IsEx, LetEx, MatchCase,
+        ObjEx, PropEx, UnaryEx, UnaryOp,
+    },
     context::Ctx,
-    exprs::{BinaryOp, Expr, UnaryOp},
     types::Type,
-    Span, Spanned, SyntaxErr,
+    Spannable, SyntaxErr,
 };
 
-type Errors = Vec<SyntaxErr>;
+pub trait Visit {
+    fn visit(&self, ctx: &Ctx) -> Vec<SyntaxErr>;
+}
 
-impl Ctx<'_> {
-    pub fn analyse(&self, stmts: &[Expr]) -> Result<(), Errors> {
-        let mut errors = Vec::new();
-        for stmt in stmts {
-            errors.append(&mut self.visit(stmt));
-        }
-        let has_err = errors.len() == 0;
-        if has_err {
-            Ok(())
-        } else {
-            Err(errors)
+impl Visit for Expr {
+    fn visit(&self, ctx: &Ctx) -> Vec<SyntaxErr> {
+        match self {
+            Expr::Val(_) => vec![],
+            Expr::Let(e) => e.visit(ctx),
+            Expr::Def(e) => e.visit(ctx),
+            Expr::Block(e) => e.visit(ctx),
+            Expr::Unary(e) => e.visit(ctx),
+            Expr::Binary(e) => e.visit(ctx),
+            Expr::If(e) => e.visit(ctx),
+            Expr::Fn(e) => e.visit(ctx),
+            Expr::Call(e) => e.visit(ctx),
+            Expr::Is(e) => e.visit(ctx),
+            Expr::Prop(e) => e.visit(ctx),
+            Expr::Obj(e) => e.visit(ctx),
         }
     }
+}
 
-    fn get_return_type(&self, expr: &Expr) -> Result<Rc<Type>, SyntaxErr> {
-        fn resolve<'a>(ctx: &'a Ctx<'_>, t: &Type, s: &Span) -> Result<Rc<Type>, SyntaxErr> {
-            match ctx.resolve_type(&t) {
-                Ok(val) => Ok(val),
-                Err(msg) => Err(SyntaxErr::new(&msg, s)),
+impl Visit for LetEx {
+    fn visit(&self, ctx: &Ctx) -> Vec<SyntaxErr> {
+        let mut errors = self.expr.visit(ctx);
+        let typedef = match ctx.get_return_type(&self.expr) {
+            Ok(r) => r.clone(),
+            Err(err) => {
+                errors.push(err);
+                return errors;
             }
+        };
+        if let Err(err) = ctx.try_set_type(&self.name.0, typedef) {
+            errors.push(err);
         }
+        errors
+    }
+}
 
-        match expr {
-            Expr::Var {
-                name,
-                then,
-                span: _,
-            } => {
-                let typedef = match self.get_type(&name.0) {
-                    Some(x) => x,
-                    None => {
-                        return Err(SyntaxErr::new(
-                            &format!("var {} is not defined", name.0),
-                            &name.1,
-                        ))
-                    }
-                };
-                if let Type::Obj(entries) = typedef.as_ref() {
-                    if let Some(expr) = then {
-                        // get object property
-                        let ctx = Ctx::new(Some(entries.clone()), None);
-                        let return_type = ctx.get_return_type(expr)?;
-                        return Ok(return_type);
-                    }
-                } else if let Some(_) = then {
-                    return Err(SyntaxErr::new(
-                        "only object properties are supported",
-                        &name.1,
-                    ));
-                }
-                self.resolve_rctype(typedef)
-                    .map_err(|e| SyntaxErr::new(&e, &name.1))
+impl Visit for DefEx {
+    fn visit(&self, ctx: &Ctx) -> Vec<SyntaxErr> {
+        let mut errors = vec![];
+        if let Err(err) = ctx.try_set_type(&self.name.0, self.ty.clone()) {
+            errors.push(err);
+        }
+        errors
+    }
+}
+
+impl Visit for BlockEx {
+    fn visit(&self, ctx: &Ctx) -> Vec<SyntaxErr> {
+        let mut errors = vec![];
+        let ctx = ctx.derive();
+        for expr in &self.stmts {
+            errors.append(&mut expr.visit(&ctx));
+        }
+        errors
+    }
+}
+
+impl Visit for UnaryEx {
+    fn visit(&self, ctx: &Ctx) -> Vec<SyntaxErr> {
+        let mut errors = self.expr.visit(ctx);
+        let return_type = match ctx.get_return_type(&self.expr) {
+            Ok(t) => t,
+            Err(err) => {
+                errors.push(err);
+                return errors;
             }
-            Expr::Call {
-                name,
-                args: _,
-                span: _,
-            } => match self.get_type(&name.0) {
-                Some(typedef) => match typedef.as_ref() {
-                    Type::Fn { args: _, returns } => resolve(self, returns.as_ref(), &name.1),
-                    _ => Err(SyntaxErr::new(
-                        "invalid call expression, variable is not a function",
-                        &name.1,
+        };
+        match return_type.as_ref() {
+            Type::Number(_) => {
+                if self.op.0 != UnaryOp::Minus {
+                    errors.push(SyntaxErr::new(
+                        "operator can only be used for numbers",
+                        &self.op.1,
+                    ))
+                }
+            }
+            _ => (),
+        }
+        errors
+    }
+}
+
+impl Visit for BinaryEx {
+    fn visit(&self, ctx: &Ctx) -> Vec<SyntaxErr> {
+        let mut errors = self.left.visit(ctx);
+        errors.append(&mut self.right.visit(ctx));
+
+        let left_return = match ctx.get_return_type(&self.left) {
+            Ok(t) => t,
+            Err(err) => {
+                errors.push(err);
+                return errors;
+            }
+        };
+        let right_return = match ctx.get_return_type(&self.right) {
+            Ok(t) => t,
+            Err(err) => {
+                errors.push(err);
+                return errors;
+            }
+        };
+
+        match self.op.0 {
+            BinaryOp::Plus => match (left_return.as_ref(), right_return.as_ref()) {
+                // concat strings
+                (Type::String(_), _) => (),
+                // add numbers
+                (Type::Number(_), Type::Number(_)) => (),
+                _ => errors.push(SyntaxErr::new(
+                    "operator can only be used for numbers or strings",
+                    &self.op.1,
+                )),
+            },
+            BinaryOp::Minus | BinaryOp::Mul | BinaryOp::Div => {
+                match (left_return.as_ref(), right_return.as_ref()) {
+                    (Type::Number(_), Type::Number(_)) => (),
+                    _ => errors.push(SyntaxErr::new(
+                        "operator can only be used for numbers",
+                        &self.op.1,
                     )),
-                },
-                _ => Err(SyntaxErr::new("function is not defined", &name.1)),
-            },
-            Expr::Literal(val) => resolve(self, &val.0.get_type(), &val.1),
-            Expr::Unary {
-                op,
-                expr: _,
-                span: _,
-            } => Ok(Rc::new(match op.0 {
-                UnaryOp::Bang => Type::Bool,
-                UnaryOp::Minus => Type::Number,
-            })),
-            Expr::Binary {
-                op,
-                left,
-                right: _,
-                span: _,
-            } => Ok(Rc::new(match op.0 {
-                BinaryOp::Plus => match *self.get_return_type(left)? == Type::String {
-                    true => Type::String,
-                    false => Type::Number,
-                },
-                BinaryOp::Minus | BinaryOp::Mul | BinaryOp::Div => Type::Number,
-                _ => Type::Bool,
-            })),
-            Expr::Block { stmts, span: _ } => match stmts.last() {
-                Some(expr) => self.get_return_type(expr),
-                None => Ok(Rc::new(Type::Void)),
-            },
-            Expr::If {
-                cond: _,
-                then,
-                or,
-                span: _,
-            } => match or {
-                None => self.get_return_type(then),
-                Some(or) => {
-                    let then_type = self.get_return_type(then)?;
-                    let or_type = self.get_return_type(or)?;
-                    Ok(Rc::new(then_type.combine(&or_type)))
                 }
-            },
-            Expr::Fn {
-                block: _,
-                typedef,
-                span: _,
-            } => resolve(self, &typedef.0, &typedef.1),
-            Expr::Let {
-                name: _,
-                expr: _,
-                span: _,
-            } => Ok(Rc::new(Type::Void)),
-            Expr::Def {
-                name: _,
-                typedef: _,
-                span: _,
-            } => Ok(Rc::new(Type::Void)),
-            Expr::Is {
-                expr,
-                cases,
-                default,
-                span: _,
-            } => {
-                let expr_type = self.get_return_type(expr)?;
-                let mut return_type = self.get_return_type(default)?.as_ref().clone();
-                for case in cases {
-                    let typedef = match case {
-                        Expr::MatchType {
-                            typedef,
-                            then: _,
-                            span: _,
-                        } => typedef.0.clone(),
-                        _ => expr_type.as_ref().clone(),
-                    };
-                    let ctx = self.derive();
-                    let _ = ctx.try_set_type("it", typedef);
-                    let then_return = ctx.get_return_type(case)?;
-                    return_type = return_type.combine(then_return.as_ref());
-                }
-                Ok(Rc::new(return_type))
             }
-            Expr::Match {
-                op: _,
-                expr: _,
-                then,
-                span: _,
-            } => self.get_return_type(&then),
-            Expr::MatchType {
-                typedef: _,
-                then,
-                span: _,
-            } => self.get_return_type(&then),
-            Expr::New {
-                entries,
-                typedef,
-                span: _,
-            } => match typedef {
-                Some(t) => resolve(self, &Type::Def(t.0.clone()), &t.1),
-                None => {
-                    let mut types = HashMap::new();
-                    for (key, expr) in entries {
-                        let return_type = self.get_return_type(expr)?;
-                        types.insert(key.0.clone(), return_type.as_ref().clone());
-                    }
-                    Ok(Rc::new(Type::Obj(types)))
+            BinaryOp::NotEqual
+            | BinaryOp::Equal
+            | BinaryOp::Greater
+            | BinaryOp::GreaterEqual
+            | BinaryOp::Less
+            | BinaryOp::LessEqual => {
+                if left_return.as_ref().ne(right_return.as_ref()) {
+                    errors.push(SyntaxErr::new("can only compare same types", &self.op.1))
                 }
-            },
-        }
-    }
-
-    // statements
-    fn visit(&self, expr: &Expr) -> Errors {
-        match expr {
-            Expr::Block {
-                stmts: exprs,
-                span: _,
-            } => self.visit_block(exprs),
-            Expr::Let {
-                name,
-                expr,
-                span: _,
-            } => self.visit_let(name, expr),
-            Expr::Def {
-                name,
-                typedef,
-                span: _,
-            } => self.visit_def(name, typedef),
-            Expr::If {
-                cond,
-                then,
-                or,
-                span: _,
-            } => self.visit_if(cond, then, or),
-            Expr::Fn {
-                typedef,
-                block,
-                span: _,
-            } => self.visit_fn(typedef, block),
-            Expr::Is {
-                expr,
-                cases,
-                default,
-                span: _,
-            } => self.visit_is(expr, cases, default),
-            Expr::New {
-                entries,
-                typedef,
-                span: _,
-            } => self.visit_new(entries, typedef),
-            _ => self.visit_expr(expr),
-        }
-    }
-
-    fn visit_block(&self, exprs: &Vec<Expr>) -> Errors {
-        let mut errors = vec![];
-        let ctx = self.derive();
-        for expr in exprs {
-            errors.append(&mut ctx.visit(expr));
-        }
-        errors
-    }
-
-    fn visit_let(&self, name: &Spanned<String>, expr: &Box<Expr>) -> Errors {
-        let mut errors = self.visit(expr);
-        let typedef = match self.get_return_type(&expr) {
-            Ok(r) => r.as_ref().clone(),
-            Err(err) => {
-                errors.push(err);
-                return errors;
             }
-        };
-
-        if let Err(msg) = self.try_set_type(&name.0, typedef) {
-            errors.push(SyntaxErr::new(msg, &name.1));
-        }
-        errors
-    }
-
-    fn visit_new(
-        &self,
-        entries: &HashMap<Spanned<String>, Expr>,
-        typedef: &Option<Spanned<String>>,
-    ) -> Errors {
-        let mut errors = vec![];
-        for (_, expr) in entries {
-            errors.append(&mut self.visit(expr));
-        }
-        if let Some(t) = typedef {
-            let def_type = match self.resolve_type(&Type::Def(t.0.clone())) {
-                Ok(t) => t.as_ref().clone(),
-                Err(msg) => {
-                    errors.push(SyntaxErr::new(&msg, &t.1));
-                    return errors;
-                }
-            };
-            match self.get_return_type(&Expr::New {
-                entries: entries.clone(),
-                typedef: None,
-                span: 0..0,
-            }) {
-                Ok(expr_type) => {
-                    if !def_type.includes(&expr_type) {
-                        errors.push(SyntaxErr::new(
-                            &format!(
-                                "initializer is not assignable to {}\nexpected: {}\nfound: {}",
-                                t.0, def_type, expr_type
-                            ),
-                            &t.1,
-                        ))
-                    }
-                }
-                Err(err) => errors.push(err),
+            BinaryOp::And | BinaryOp::Or => {
+                // variables get checked by truthyness
             }
         }
         errors
     }
+}
 
-    fn visit_def(&self, name: &Spanned<String>, typedef: &Spanned<Type>) -> Errors {
+impl Visit for IfEx {
+    fn visit(&self, ctx: &Ctx) -> Vec<SyntaxErr> {
+        let mut errors = self.cond.visit(ctx);
+        errors.append(&mut self.then.visit(ctx));
+
+        if let Some(expr) = &self.or {
+            errors.append(&mut expr.visit(ctx));
+        }
+        errors
+    }
+}
+
+impl Visit for FnEx {
+    fn visit(&self, ctx: &Ctx) -> Vec<SyntaxErr> {
         let mut errors = vec![];
-        if let Err(msg) = self.try_set_type(&name.0, typedef.0.clone()) {
-            errors.push(SyntaxErr::new(msg, &name.1));
-        }
-        errors
-    }
-
-    fn visit_if(&self, cond: &Box<Expr>, then: &Box<Expr>, or: &Option<Box<Expr>>) -> Errors {
-        let mut errors = self.visit_expr(cond);
-        errors.append(&mut self.visit(then));
-
-        if let Some(expr) = or {
-            errors.append(&mut self.visit(expr));
-        }
-        errors
-    }
-
-    fn visit_is(&self, expr: &Box<Expr>, cases: &Vec<Expr>, default: &Box<Expr>) -> Errors {
-        let mut errors = self.visit(expr);
-        let expr_type = match self.get_return_type(expr) {
-            Ok(t) => t.as_ref().clone(),
-            Err(err) => {
-                errors.push(err);
-                return errors;
-            }
-        };
-
-        // validate cases
-        for case in cases {
-            let (then, typedef) = match case {
-                Expr::Match {
-                    op,
-                    expr: right,
-                    then,
-                    span: _,
-                } => {
-                    self.visit_binary(op, expr, right);
-                    (then, expr_type.clone())
-                }
-                Expr::MatchType {
-                    typedef,
-                    then,
-                    span: _,
-                } => {
-                    if !expr_type.includes(&typedef.0) {
-                        errors.push(SyntaxErr::new(
-                            &format!(
-                                "expression is allways false, type {} is not included in {}",
-                                expr_type, typedef.0,
-                            ),
-                            &typedef.1,
-                        ))
-                    }
-                    (then, typedef.0.clone())
-                }
-                _ => {
-                    errors.push(SyntaxErr::new("invalid match case", case.get_span()));
-                    continue;
-                }
-            };
-            // create match ctx
-            let ctx = self.derive();
-            let _ = ctx.try_set_type("it", typedef);
-            errors.append(&mut ctx.visit(then));
-        }
-
-        // validate default
-        let ctx = self.derive();
-        let _ = ctx.try_set_type("it", expr_type);
-        errors.append(&mut ctx.visit(default));
-        errors
-    }
-
-    fn visit_fn(&self, typedef: &Spanned<Type>, block: &Box<Expr>) -> Errors {
-        let mut errors = vec![];
-        let (args, return_type) = match self.resolve_type(&typedef.0) {
+        let (args, return_type) = match ctx.resolve_type(self.ty.clone()) {
             Ok(t) => match t.as_ref().clone() {
-                Type::Fn { args, returns } => (args, returns),
+                Type::Fn(f) => (f.args, f.returns),
                 t => {
                     errors.push(SyntaxErr::new(
                         &format!("expected function type, found {}", t),
-                        &typedef.1,
+                        &t.span(),
                     ));
                     return errors;
                 }
             },
             Err(msg) => {
-                errors.push(SyntaxErr::new(&msg, &typedef.1));
+                errors.push(msg);
                 return errors;
             }
         };
 
         // create function scope
-        let ctx = self.derive();
-        for arg in args {
-            if ctx.try_set_type(&arg.0, arg.1.clone()).is_err() {
-                errors.push(SyntaxErr::new("argument already exists", &typedef.1))
+        let ctx = ctx.derive();
+        for (name, ex) in args {
+            if ctx.try_set_type(&name.0, ex.clone()).is_err() {
+                errors.push(SyntaxErr::new("argument already exists", &name.1))
             }
         }
         // validate expression
-        errors.append(&mut ctx.visit(&block));
-        match ctx.get_return_type(&block) {
+        errors.append(&mut self.block.visit(&ctx));
+        match ctx.get_return_type(&self.block) {
             Ok(expr_return) => {
                 if !return_type.includes(&expr_return) {
                     errors.push(SyntaxErr::new(
@@ -402,7 +203,7 @@ impl Ctx<'_> {
                             expr_return.as_ref()
                         )
                         .as_str(),
-                        block.get_span(),
+                        self.block.span(),
                     ));
                 }
             }
@@ -410,167 +211,48 @@ impl Ctx<'_> {
         }
         errors
     }
+}
 
-    // expression
-    fn visit_expr(&self, expr: &Expr) -> Errors {
-        match expr {
-            Expr::Literal(_) => vec![],
-            Expr::Var {
-                name,
-                span: _,
-                then,
-            } => self.visit_variable(name, then),
-            Expr::Call {
-                name,
-                args,
-                span: _,
-            } => self.visit_call(name, args),
-            Expr::Unary { op, expr, span: _ } => self.visit_unary(op, expr),
-            Expr::Binary {
-                op,
-                left,
-                right,
-                span: _,
-            } => self.visit_binary(op, left, right),
-            _ => vec![SyntaxErr::new("invalid expression", expr.get_span())],
-        }
-    }
-
-    fn visit_unary(&self, op: &Spanned<UnaryOp>, expr: &Box<Expr>) -> Errors {
-        let mut errors = self.visit_expr(expr);
-        let return_type = match self.get_return_type(expr) {
-            Ok(t) => t,
-            Err(err) => {
-                errors.push(err);
-                return errors;
-            }
-        };
-        if op.0 == UnaryOp::Minus && *return_type != Type::Number {
-            errors.push(SyntaxErr::new(
-                "minus can only be applyed to numbers",
-                &op.1,
-            ));
-        }
-        errors
-    }
-
-    fn visit_binary(&self, op: &Spanned<BinaryOp>, left: &Box<Expr>, right: &Box<Expr>) -> Errors {
-        let mut errors = self.visit(left);
-        errors.append(&mut self.visit(right));
-
-        let left_return = match self.get_return_type(left) {
-            Ok(t) => t,
-            Err(err) => {
-                errors.push(err);
-                return errors;
-            }
-        };
-        let right_return = match self.get_return_type(right) {
-            Ok(t) => t,
-            Err(err) => {
-                errors.push(err);
-                return errors;
-            }
-        };
-
-        match op.0 {
-            BinaryOp::Plus => {
-                if *left_return != Type::String
-                    && (*left_return != Type::Number || *right_return != Type::Number)
-                {
-                    errors.push(SyntaxErr::new(
-                        "operator can only be used for numbers",
-                        &op.1,
-                    ))
-                }
-            }
-            BinaryOp::Minus | BinaryOp::Mul | BinaryOp::Div => {
-                if *left_return != Type::Number || *right_return != Type::Number {
-                    errors.push(SyntaxErr::new(
-                        "operator can only be used for numbers",
-                        &op.1,
-                    ))
-                }
-            }
-            BinaryOp::NotEqual
-            | BinaryOp::Equal
-            | BinaryOp::Greater
-            | BinaryOp::GreaterEqual
-            | BinaryOp::Less
-            | BinaryOp::LessEqual => {
-                if *left_return != *right_return {
-                    errors.push(SyntaxErr::new("can only compare same types", &op.1))
-                }
-            }
-            BinaryOp::And | BinaryOp::Or => {
-                // variables get checked by truthyness
-            }
-        }
-        errors
-    }
-
-    fn visit_variable(&self, name: &Spanned<String>, then: &Option<Box<Expr>>) -> Errors {
-        let var = match self.get_type(&name.0) {
-            Some(x) => x,
-            None => return vec![SyntaxErr::new("variable not defined", &name.1)],
-        };
-        if let Some(expr) = then {
-            let ctx = Ctx::new(
-                match var.as_ref() {
-                    Type::Obj(entries) => Some(entries.clone()),
-                    _ => None,
-                },
-                None,
-            );
-            ctx.visit(expr)
-        } else {
-            vec![]
-        }
-    }
-
-    fn visit_call(&self, name: &Spanned<String>, args: &Vec<Expr>) -> Errors {
-        let arg_types = match self.get_type(&name.0) {
+impl Visit for CallEx {
+    fn visit(&self, ctx: &Ctx) -> Vec<SyntaxErr> {
+        let arg_types = match ctx.get_type(&self.name.0) {
             Some(t) => match t.as_ref() {
-                Type::Fn { args, returns: _ } => args.clone(),
+                Type::Fn(f) => f.args.clone(),
                 _ => {
                     return vec![SyntaxErr::new(
-                        format!("{} is not a function", &name.0).as_str(),
-                        &name.1,
+                        format!("{} is not a function", &self.name.0).as_str(),
+                        &self.span,
                     )]
                 }
             },
-            None => return vec![SyntaxErr::new("function not defined", &name.1)],
+            None => return vec![SyntaxErr::new("function not defined", &self.span)],
         };
         let mut errors = vec![];
         for (i, (arg_name, arg_type)) in arg_types.iter().enumerate() {
-            let arg = match args.get(i) {
+            let arg = match self.args.get(i) {
                 Some(expr) => expr,
                 None => {
                     errors.push(SyntaxErr::new(
-                        format!("missing fn arg {}", &arg_name).as_str(),
-                        &name.1,
+                        format!("missing fn arg {}", &arg_name.0).as_str(),
+                        &arg_name.1,
                     ));
                     continue;
                 }
             };
             // if arg is function use defined type
             let arg_return = match arg {
-                Expr::Fn {
-                    typedef: _,
-                    block,
-                    span,
-                } => {
-                    let expr = Expr::Fn {
-                        typedef: (arg_type.clone(), span.clone()),
-                        block: block.clone(),
-                        span: span.clone(),
-                    };
-                    errors.append(&mut self.visit(&expr));
-                    self.get_return_type(&expr)
+                Expr::Fn(f) => {
+                    let expr = Expr::Fn(FnEx {
+                        ty: arg_type.clone(),
+                        block: f.block.clone(),
+                        span: f.span.clone(),
+                    });
+                    errors.append(&mut expr.visit(ctx));
+                    ctx.get_return_type(&expr)
                 }
                 expr => {
-                    errors.append(&mut self.visit(expr));
-                    self.get_return_type(expr)
+                    errors.append(&mut expr.visit(ctx));
+                    ctx.get_return_type(expr)
                 }
             };
             match arg_return {
@@ -579,11 +261,102 @@ impl Ctx<'_> {
                         errors.push(SyntaxErr::new(
                             format!("invalid arg type\nexpected: {arg_type}\nfound: {arg_return}",)
                                 .as_str(),
-                            arg.get_span(),
+                            arg.span(),
                         ));
                     }
                 }
                 Err(err) => errors.push(err),
+            }
+        }
+        errors
+    }
+}
+
+impl Visit for IsEx {
+    fn visit(&self, ctx: &Ctx) -> Vec<SyntaxErr> {
+        let mut errors = self.expr.visit(ctx);
+        let expr_type = match ctx.get_return_type(&self.expr) {
+            Ok(t) => t.clone(),
+            Err(err) => {
+                errors.push(err);
+                return errors;
+            }
+        };
+
+        // validate cases
+        for case in &self.cases {
+            let (then, typedef) = match case {
+                MatchCase::Value(c) => {
+                    let mut err = Expr::Binary(BinaryEx {
+                        op: c.op.clone(),
+                        left: self.expr.clone(),
+                        right: c.expr.clone(),
+                        span: self.span.clone(),
+                    })
+                    .visit(ctx);
+                    errors.append(&mut err);
+                    (&c.then, expr_type.clone())
+                }
+                MatchCase::Type(c) => {
+                    if !expr_type.includes(&c.ty) {
+                        errors.push(SyntaxErr::new(
+                            &format!(
+                                "expression is allways false, type {} is not included in {}",
+                                expr_type, c.ty,
+                            ),
+                            &c.ty.span(),
+                        ));
+                    }
+                    (&c.then, c.ty.clone())
+                }
+            };
+            // create match ctx
+            let ctx = ctx.derive();
+            let _ = ctx.try_set_type("it", typedef);
+            errors.append(&mut then.visit(&ctx));
+        }
+
+        // validate default
+        let ctx = ctx.derive();
+        let _ = ctx.try_set_type("it", expr_type);
+        errors.append(&mut self.default.visit(&ctx));
+        errors
+    }
+}
+
+impl Visit for PropEx {
+    fn visit(&self, ctx: &Ctx) -> Vec<SyntaxErr> {
+        let var = match ctx.get_type(&self.name.0) {
+            Some(x) => x,
+            None => return vec![SyntaxErr::new("variable not defined", &self.name.1)],
+        };
+        if let Some(expr) = &self.then {
+            let ctx = match var.as_ref() {
+                Type::Obj(o) => Ctx::form_types(&o.entries),
+                _ => Ctx::new(),
+            };
+            expr.visit(&ctx)
+        } else {
+            vec![]
+        }
+    }
+}
+
+impl Visit for ObjEx {
+    fn visit(&self, ctx: &Ctx) -> Vec<SyntaxErr> {
+        let mut errors = vec![];
+        let obj_ctx = Ctx::new();
+        for (name, expr) in &self.entries {
+            errors.append(&mut expr.visit(ctx));
+            let expr_type = match ctx.get_return_type(expr) {
+                Ok(t) => t.clone(),
+                Err(err) => {
+                    errors.push(err);
+                    continue;
+                }
+            };
+            if let Err(err) = obj_ctx.try_set_type(&name.0, expr_type) {
+                errors.push(err);
             }
         }
         errors

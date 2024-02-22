@@ -97,7 +97,6 @@ impl LexerCtx {
             "is" => self.add(Token::Is),
             "def" => self.add(Token::Def),
             "let" => self.add(Token::Let),
-            "new" => self.add(Token::New),
             "else" => self.add(Token::Else),
             "true" => self.add(Token::Bool(true)),
             "false" => self.add(Token::Bool(false)),

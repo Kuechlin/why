@@ -1,43 +1,38 @@
-/*
-fn add(a: int, b: int) {
-    a + b
-}
-enum LoopResult {
-    Continue,
-    Break
-}
-fn loop(fn: fn LoopResult) {
-    let r = fn()
-    if r {
-        Continue -> loop(fn),
-    }
-}
-
-let text = "hello world"
-let x = 0;
-loop {
-    x = add(x, 5)
-    if x {
-        > 10 -> Break,
-        _ -> Continue
-    }
-}
-*/
-
-use std::io::{self, Write};
+use std::{
+    env,
+    io::{self, Write},
+};
 
 use colored::Colorize;
-use types::SyntaxErr;
 
-use crate::types::{context::Ctx, values::Value};
+use crate::{
+    api::{eval, eval_with_ctx},
+    types::context::Ctx,
+};
 
 mod analyser;
+mod api;
 mod interpretor;
 mod lexer;
 mod parser;
 mod types;
 
 fn main() {
+    let args: Vec<String> = env::args().collect();
+
+    if args.len() < 2 {
+        repl();
+    } else {
+        let filename = &args[1];
+        println!("{}{}", "run: ".blue(), filename);
+        match std::fs::read_to_string(filename) {
+            Ok(buffer) => run(&buffer),
+            Err(err) => println!("{}{}", "file error: ".red().bold(), err.to_string().red()),
+        };
+    }
+}
+
+fn logo() {
     println!(
         "{}",
         "
@@ -53,7 +48,11 @@ fn main() {
 "
         .blue()
     );
-    let ctx = Ctx::new(None, None);
+}
+
+fn repl() {
+    logo();
+    let ctx = Ctx::new();
     let mut stdout = io::stdout();
     let stdin = io::stdin();
     loop {
@@ -64,75 +63,26 @@ fn main() {
         let _ = stdin.read_line(&mut buffer);
 
         print!("{}{}", "run: ".blue(), buffer);
-        let tokens = match lexer::scan(&buffer) {
-            Ok(e) => e,
-            Err(err) => {
-                print_err(&buffer, &err);
-                continue;
-            }
-        };
-
-        let stmts = match parser::parse(&tokens) {
-            Ok(e) => e,
-            Err(err) => {
-                print_err(&buffer, &err);
-                continue;
-            }
-        };
-
-        match ctx.analyse(&stmts) {
-            Ok(_) => (),
+        match eval_with_ctx(&ctx, &buffer) {
+            Ok(e) => e.as_ref().print(),
             Err(err) => {
                 for e in err {
-                    print_err(&buffer, &e);
+                    e.print(&buffer);
                 }
-                continue;
             }
         };
-
-        let result = match ctx.execute(&stmts) {
-            Ok(e) => e,
-            Err(err) => {
-                println!("{}{}", "error: ".red().bold(), err.message.red());
-                continue;
-            }
-        };
-
-        match result {
-            Value::Void => {
-                println!("{}", "void".cyan())
-            }
-            res => {
-                print!("{}", "result: ".green());
-                println!("{}", res.to_string());
-            }
-        }
         println!("");
     }
 }
 
-fn times(x: usize, v: char) -> String {
-    (0..x).map(|_| v).collect()
-}
-
-fn print_err(buffer: &str, err: &SyntaxErr) {
-    let mut value = "";
-    let mut count = 0;
-    let mut len = 0;
-    for line in buffer.split('\n') {
-        count += 1;
-        value = line;
-        if len + line.len() > err.source.start {
-            len = err.source.start - len;
-            break;
+fn run(buffer: &str) {
+    match eval(&buffer) {
+        Ok(e) => e.as_ref().print(),
+        Err(err) => {
+            for e in err {
+                e.print(&buffer);
+            }
         }
-        len += line.len();
-    }
-
-    println!("{}{}", "error: ".red().bold(), err.message.red());
-    let num = count.to_string();
-    println!("{}{}{value}", num.bold().blue(), " | ".bold().blue());
-    let space = times(len + num.len() + 3, ' ');
-    let line = times(err.source.len(), '^');
-    println!("{space}{}", line.red());
+    };
+    println!("");
 }
