@@ -52,8 +52,36 @@ impl LexerCtx {
             self.current += 1;
         }
     }
-    fn string(&mut self) -> Result<(), SyntaxErr> {
+    fn add_str(&mut self) {
+        let value = self.get_current();
+        if !value.is_empty() {
+            self.add(Token::String(self.get_current()));
+        }
+    }
+    fn tmpl(&mut self) -> Result<(), SyntaxErr> {
+        self.add(Token::Quotation);
+        self.start += 1;
+
         while self.peek() != '"' && !self.is_end() {
+            //if self.peek() == '\\' {
+            //    self.add(Token::BackSalsh);
+            //}
+            if self.peek() == '{' {
+                self.add_str();
+                self.start = self.current;
+                while self.peek() != '}' && !self.is_end() {
+                    self.start = self.current;
+                    self.get_next()?;
+                }
+                if self.is_end() {
+                    return Err(SyntaxErr {
+                        message: "Expected '}' after template part".to_owned(),
+                        source: self.start..self.current - 1,
+                    });
+                }
+                self.add(Token::RightBrace);
+                self.start = self.current + 1;
+            }
             self.current += 1;
         }
 
@@ -64,11 +92,9 @@ impl LexerCtx {
             });
         }
 
+        self.add_str();
         self.current += 1;
-
-        let value = self.get_string(self.start + 1, self.current - 1);
-
-        self.add(Token::String(value));
+        self.add(Token::Quotation);
         Ok(())
     }
     fn number(&mut self) -> Result<(), SyntaxErr> {
@@ -150,7 +176,7 @@ impl LexerCtx {
             '|' => self.add(Token::Or),
             '&' => self.add(Token::And),
             // string
-            '"' => self.string()?,
+            '"' => self.tmpl()?,
             // ignore whitespace
             ' ' => (),
             '\t' => (),

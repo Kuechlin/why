@@ -3,7 +3,7 @@ use std::{collections::HashMap, rc::Rc};
 use crate::types::{
     ast::{
         BinaryEx, BinaryOp, BlockEx, CallEx, DefEx, Expr, FnEx, IfEx, IsEx, LetEx, MatchCase,
-        ObjEx, PropEx, UnaryEx, UnaryOp,
+        ObjEx, TmplEx, UnaryEx, UnaryOp, VarEx,
     },
     context::Ctx,
     types::Type,
@@ -18,18 +18,19 @@ pub trait Eval {
 impl Eval for Expr {
     fn eval(&self, ctx: &Ctx) -> Result<Rc<Value>, SyntaxErr> {
         match self {
-            Expr::Val(v) => Ok(v.value.clone()),
-            Expr::Let(v) => v.eval(ctx),
-            Expr::Def(v) => v.eval(ctx),
-            Expr::Block(v) => v.eval(ctx),
-            Expr::Unary(v) => v.eval(ctx),
-            Expr::Binary(v) => v.eval(ctx),
-            Expr::If(v) => v.eval(ctx),
-            Expr::Fn(v) => v.eval(ctx),
-            Expr::Call(v) => v.eval(ctx),
-            Expr::Is(v) => v.eval(ctx),
-            Expr::Prop(v) => v.eval(ctx),
-            Expr::Obj(v) => v.eval(ctx),
+            Expr::Val(e) => Ok(e.value.clone()),
+            Expr::Let(e) => e.eval(ctx),
+            Expr::Def(e) => e.eval(ctx),
+            Expr::Block(e) => e.eval(ctx),
+            Expr::Unary(e) => e.eval(ctx),
+            Expr::Binary(e) => e.eval(ctx),
+            Expr::If(e) => e.eval(ctx),
+            Expr::Fn(e) => e.eval(ctx),
+            Expr::Call(e) => e.eval(ctx),
+            Expr::Is(e) => e.eval(ctx),
+            Expr::Var(e) => e.eval(ctx),
+            Expr::Obj(e) => e.eval(ctx),
+            Expr::Tmpl(e) => e.eval(ctx),
         }
     }
 }
@@ -60,7 +61,7 @@ impl Eval for DefEx {
     }
 }
 
-impl Eval for PropEx {
+impl Eval for VarEx {
     fn eval(&self, ctx: &Ctx) -> Result<Rc<Value>, SyntaxErr> {
         let value = ctx.get_value(&self.name.0);
 
@@ -224,10 +225,7 @@ impl Eval for BinaryEx {
         let right_value = self.right.eval(ctx)?;
 
         match self.op.0 {
-            BinaryOp::Plus => match left_value.as_ref() {
-                Value::String(val) => concat(&val, &right_value),
-                _ => math(&self.op, &left_value, &right_value),
-            },
+            BinaryOp::Plus => math(&self.op, &left_value, &right_value),
             BinaryOp::Minus => math(&self.op, &left_value, &right_value),
             BinaryOp::Mul => math(&self.op, &left_value, &right_value),
             BinaryOp::Div => math(&self.op, &left_value, &right_value),
@@ -261,6 +259,17 @@ impl Eval for ObjEx {
     }
 }
 
+impl Eval for TmplEx {
+    fn eval(&self, ctx: &Ctx) -> Result<Rc<Value>, SyntaxErr> {
+        let mut result = String::new();
+        for part in &self.parts {
+            let val = part.eval(ctx)?;
+            result.push_str(&val.as_ref().to_string());
+        }
+        Ok(Rc::new(Value::String(result)))
+    }
+}
+
 fn math(op: &Spanned<BinaryOp>, left: &Value, right: &Value) -> Result<Rc<Value>, SyntaxErr> {
     let a = match left {
         Value::Number(x) => x,
@@ -278,10 +287,4 @@ fn math(op: &Spanned<BinaryOp>, left: &Value, right: &Value) -> Result<Rc<Value>
         BinaryOp::Div => a / b,
         _ => return Err(SyntaxErr::new("invalid operator", &op.1)),
     })))
-}
-
-fn concat(left: &String, right: &Value) -> Result<Rc<Value>, SyntaxErr> {
-    let mut result = left.to_string();
-    result.push_str(right.to_string().as_str());
-    Ok(Rc::new(Value::String(result)))
 }

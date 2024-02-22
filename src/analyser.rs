@@ -1,7 +1,7 @@
 use crate::types::{
     ast::{
         BinaryEx, BinaryOp, BlockEx, CallEx, DefEx, Expr, FnEx, IfEx, IsEx, LetEx, MatchCase,
-        ObjEx, PropEx, UnaryEx, UnaryOp,
+        ObjEx, TmplEx, UnaryEx, UnaryOp, VarEx,
     },
     context::Ctx,
     types::Type,
@@ -25,8 +25,9 @@ impl Visit for Expr {
             Expr::Fn(e) => e.visit(ctx),
             Expr::Call(e) => e.visit(ctx),
             Expr::Is(e) => e.visit(ctx),
-            Expr::Prop(e) => e.visit(ctx),
+            Expr::Var(e) => e.visit(ctx),
             Expr::Obj(e) => e.visit(ctx),
+            Expr::Tmpl(e) => e.visit(ctx),
         }
     }
 }
@@ -115,17 +116,7 @@ impl Visit for BinaryEx {
         };
 
         match self.op.0 {
-            BinaryOp::Plus => match (left_return.as_ref(), right_return.as_ref()) {
-                // concat strings
-                (Type::String(_), _) => (),
-                // add numbers
-                (Type::Number(_), Type::Number(_)) => (),
-                _ => errors.push(SyntaxErr::new(
-                    "operator can only be used for numbers or strings",
-                    &self.op.1,
-                )),
-            },
-            BinaryOp::Minus | BinaryOp::Mul | BinaryOp::Div => {
+            BinaryOp::Plus | BinaryOp::Minus | BinaryOp::Mul | BinaryOp::Div => {
                 match (left_return.as_ref(), right_return.as_ref()) {
                     (Type::Number(_), Type::Number(_)) => (),
                     _ => errors.push(SyntaxErr::new(
@@ -324,7 +315,7 @@ impl Visit for IsEx {
     }
 }
 
-impl Visit for PropEx {
+impl Visit for VarEx {
     fn visit(&self, ctx: &Ctx) -> Vec<SyntaxErr> {
         let var = match ctx.get_type(&self.name.0) {
             Some(x) => x,
@@ -358,6 +349,16 @@ impl Visit for ObjEx {
             if let Err(err) = obj_ctx.try_set_type(&name.0, expr_type) {
                 errors.push(err);
             }
+        }
+        errors
+    }
+}
+
+impl Visit for TmplEx {
+    fn visit(&self, ctx: &Ctx) -> Vec<SyntaxErr> {
+        let mut errors = vec![];
+        for expr in &self.parts {
+            errors.append(&mut expr.visit(ctx));
         }
         errors
     }

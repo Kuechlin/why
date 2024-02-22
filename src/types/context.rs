@@ -172,7 +172,7 @@ impl Ctx<'_> {
 
     pub fn get_return_type(&self, expr: &Expr) -> Result<Rc<Type>, SyntaxErr> {
         match expr {
-            Expr::Prop(v) => {
+            Expr::Var(v) => {
                 let typedef = match self.get_type(&v.name.0) {
                     Some(x) => x,
                     None => {
@@ -266,6 +266,7 @@ impl Ctx<'_> {
                     span: o.span.clone(),
                 })))
             }
+            Expr::Tmpl(a) => Ok(Rc::new(Type::String(a.span.clone()))),
         }
     }
 }

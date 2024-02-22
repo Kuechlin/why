@@ -5,5 +5,5 @@ let a = {
 }
 
 a.b is {
-  > 4 -> "more than 4"
+  > 4 -> "{it * 4} > 4"
 }

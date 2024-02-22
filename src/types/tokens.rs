@@ -21,6 +21,9 @@ pub enum Token {
     Or,
     And,
 
+    Quotation,
+    BackSalsh,
+
     Bang,
     BangEqual,
     Equal,
@@ -53,6 +56,8 @@ impl Display for Token {
             Token::RightBrace => "}".to_owned(),
             Token::LeftBracket => "[".to_owned(),
             Token::RightBracket => "]".to_owned(),
+            Token::Quotation => "\"".to_owned(),
+            Token::BackSalsh => "\\".to_owned(),
             Token::Comma => ",".to_owned(),
             Token::Dot => ".".to_owned(),
             Token::Minus => "-".to_owned(),

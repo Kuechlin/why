@@ -1,22 +1,23 @@
 name: Build and Deploy
 on: [push]
 permissions:
-    contents: write
+  contents: write
 
 jobs:
-    build-and-deploy:
-        runs-on: ubuntu-latest
-        steps:
-            - uses: actions/checkout@master
-            - uses: jetli/wasm-pack-action@v0.4.0
-            - uses: actions/setup-node@v3
-            - name: Install
-              working-directory: ./web
-              run: npm ci
-            - name: Build
-              run: make build
-            - name: Deploy
-              uses: JamesIves/github-pages-deploy-action@v4
-              with:
-                  branch: gh-pages
-                  folder: web/dist
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@master
+      - uses: jetli/wasm-pack-action@v0.4.0
+        working-directory: .
+      - uses: actions/setup-node@v3
+      - name: Install
+        working-directory: ./web
+        run: npm ci
+      - name: Build
+        run: make build
+      - name: Deploy
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          branch: gh-pages
+          folder: web/dist

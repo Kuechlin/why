@@ -3,7 +3,7 @@ use std::{collections::HashMap, rc::Rc, sync::Mutex};
 use crate::types::{
     ast::{
         BinaryEx, BinaryOp, BlockEx, CallEx, DefEx, Expr, FnEx, IfEx, IsEx, LetEx, MatchCase,
-        MatchType, MatchValue, ObjEx, PropEx, UnaryEx, UnaryOp, ValEx,
+        MatchType, MatchValue, ObjEx, TmplEx, UnaryEx, UnaryOp, ValEx, VarEx,
     },
     tokens::Token,
     types::{FnType, ObjType, OrType, Type},
@@ -140,6 +140,7 @@ impl ParserCtx<'_> {
 
         let mut nodes = Vec::new();
         while !self.check(Token::RightBrace) && !self.is_end() {
+            println!("{}", self.current()?.0);
             nodes.push(self.statement()?)
         }
         if self.is(&[Token::RightBrace]) {
@@ -306,14 +307,52 @@ impl ParserCtx<'_> {
             Token::LeftBrace => {
                 return self.expr_obj();
             }
+            Token::Quotation => {
+                return self.expr_tmpl();
+            }
             _ => return error(format!("invalid token {}", current.0).as_str(), &current.1),
         };
         // check if is match expression
         self.expr_is(expr)
     }
 
+    fn expr_tmpl(&self) -> ParserResult {
+        let start = self.end();
+        let mut parts = Vec::new();
+        while !self.check(Token::Quotation) && !self.is_end() {
+            let current = self.current()?;
+            match &current.0 {
+                Token::LeftBrace => {
+                    parts.push(self.stmt_block()?);
+                }
+                //Token::BackSalsh => {
+                //    let value = self.advance()?;
+                //    parts.push(Expr::Val(ValEx {
+                //        value: Rc::new(Value::String(value.0.to_string())),
+                //        span: value.1.clone(),
+                //    }));
+                //}
+                Token::String(val) => {
+                    parts.push(Expr::Val(ValEx {
+                        value: Rc::new(Value::String(val.to_owned())),
+                        span: current.1.clone(),
+                    }));
+                    self.advance()?;
+                }
+                _ => return error("invalid token in template", &current.1),
+            }
+        }
+        if !self.is(&[Token::Quotation]) {
+            return error("Expect '\\' at end of template", &self.current()?.1);
+        }
+        Ok(Expr::Tmpl(TmplEx {
+            parts,
+            span: start..self.end(),
+        }))
+    }
+
     fn expr_obj(&self) -> ParserResult {
-        let start = self.start();
+        let start = self.end();
         // object
         let mut entries = HashMap::new();
         while !self.check(Token::RightBrace) && !self.is_end() {
@@ -348,7 +387,7 @@ impl ParserCtx<'_> {
             then = Some(Box::new(self.primary()?));
         }
         let span = name.1.start..self.end();
-        Ok(Expr::Prop(PropEx { name, then, span }))
+        Ok(Expr::Var(VarEx { name, then, span }))
     }
 
     fn expr_is(&self, expr: Expr) -> ParserResult {

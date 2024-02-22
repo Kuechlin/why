@@ -39,8 +39,9 @@ pub enum Expr {
     Fn(FnEx),
     Call(CallEx),
     Is(IsEx),
-    Prop(PropEx),
+    Var(VarEx),
     Obj(ObjEx),
+    Tmpl(TmplEx),
 }
 impl Spannable for Expr {
     fn span(&self) -> &Span {
@@ -55,8 +56,9 @@ impl Spannable for Expr {
             Expr::Fn(v) => v.span(),
             Expr::Call(v) => v.span(),
             Expr::Is(v) => v.span(),
-            Expr::Prop(v) => v.span(),
+            Expr::Var(v) => v.span(),
             Expr::Obj(v) => v.span(),
+            Expr::Tmpl(v) => v.span(),
         }
     }
 }
@@ -129,7 +131,7 @@ pub struct IsEx {
     pub span: Span,
 }
 #[derive(Debug, Clone, PartialEq, Spannable)]
-pub struct PropEx {
+pub struct VarEx {
     pub name: Spanned<String>,
     pub then: Option<Box<Expr>>,
     pub span: Span,
@@ -167,5 +169,11 @@ pub struct MatchType {
 #[derive(Debug, Clone, PartialEq, Spannable)]
 pub struct ObjEx {
     pub entries: HashMap<Spanned<String>, Expr>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Spannable)]
+pub struct TmplEx {
+    pub parts: Vec<Expr>,
     pub span: Span,
 }
