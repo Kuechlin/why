@@ -152,12 +152,11 @@ export function Docs() {
             )
         ),
         article(
-            div({ class: "title" }, "concat"),
-            div(s("comment", "strings can be combined\nwith any value")),
-            div(s("string", '"hello "'), span(" + "), s("string", '"world"')),
-            div(s("string", '"val: "'), span(" + "), s("number", "8")),
-            div(s("string", '"is "'), span(" + "), s("boolean", "true")),
-            div(s("string", '"hello "'), span(" + "), s("variable", "name"))
+            div({ class: "title" }, "template"),
+            div(s("comment", "all strings can be template strings")),
+            div(s("string", '"val: '), s("keyword", "{"), s("number", "8"), span(" + "), s("number", "8"), s("keyword", "}"),s("string", '"')),
+            div(s("string", '"val: '), s("keyword", "{"), s("boolean", "true"), s("keyword", "}"),s("string", '"')),
+            div(s("string", '"val: '), s("keyword", "{"), s("variable", "name"), s("keyword", "}"),s("string", '"')),
         ),
         article(
             div({ class: "title" }, "functions"),

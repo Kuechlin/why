@@ -1,4 +1,4 @@
-![logo](./logo.svg)
+![logo](./web/logo.svg)
 
 # (wh)y lang
 

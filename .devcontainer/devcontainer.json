@@ -1,3 +1,6 @@
 {
-  "image": "mcr.microsoft.com/devcontainers/rust"
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "devcontainer",
+  "shutdownAction": "stopCompose",
+  "workspaceFolder": "/workspace"
 }
